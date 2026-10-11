@@ -292,15 +292,45 @@ enum class ThemeAccentColor(
     }
 }
 
-enum class SearchEngineOption(
+data class SearchEngineItem(
+    val id: String,
     val displayName: String,
-    val queryTemplate: String
+    val queryTemplate: String,
+    val isCustom: Boolean = false
 ) {
-    DUCKDUCKGO("DuckDuckGo", "https://duckduckgo.com/?q=%s"),
-    GOOGLE("Google", "https://www.google.com/search?q=%s"),
-    BING("Bing", "https://www.bing.com/search?q=%s"),
-    BRAVE("Brave Search", "https://search.brave.com/search?q=%s")
+    fun formatSearchUrl(rawQuery: String): String {
+        val encoded = java.net.URLEncoder.encode(rawQuery.trim(), "UTF-8")
+        return if (queryTemplate.contains("%s")) {
+            queryTemplate.replace("%s", encoded)
+        } else {
+            queryTemplate + encoded
+        }
+    }
+
+    companion object {
+        val DUCKDUCKGO = SearchEngineItem("duckduckgo", "DuckDuckGo", "https://duckduckgo.com/?q=%s")
+        val GOOGLE = SearchEngineItem("google", "Google", "https://www.google.com/search?q=%s")
+        val BING = SearchEngineItem("bing", "Bing", "https://www.bing.com/search?q=%s")
+        val BRAVE = SearchEngineItem("brave", "Brave Search", "https://search.brave.com/search?q=%s")
+
+        val DEFAULT_ENGINES = listOf(DUCKDUCKGO, GOOGLE, BING, BRAVE)
+    }
 }
+
+enum class ShortcutSource(val badgeLabel: String) {
+    PINNED("Pinned"),
+    MOST_VISITED("Most Visited"),
+    TOP_BOOKMARK("Top Bookmark")
+}
+
+data class HomeShortcut(
+    val id: String,
+    val title: String,
+    val url: String,
+    val isPinned: Boolean = true,
+    val source: ShortcutSource = ShortcutSource.PINNED,
+    val count: Int = 1
+)
 
 enum class DevToolsPanelTab(val label: String) {
     ELEMENTS("Elements"),

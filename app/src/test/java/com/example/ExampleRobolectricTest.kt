@@ -6,6 +6,8 @@ import com.example.devtools.DevToolsScripts
 import com.example.model.BrowserTab
 import com.example.model.ConsoleLogLevel
 import com.example.model.DevToolsPanelTab
+import com.example.model.DomNodeItem
+import com.example.model.ShortcutSource
 import com.example.model.ThemeAccentColor
 import com.example.viewmodel.BrowserDevToolsViewModel
 import org.junit.Assert.assertEquals
@@ -85,5 +87,47 @@ class ExampleRobolectricTest {
         viewModel.onBridgeConsoleLog(ConsoleLogLevel.ERROR, "SyntaxError: Unexpected token", "test.js")
         assertTrue(viewModel.uiState.value.consoleLogs.isNotEmpty())
         assertEquals(1, viewModel.uiState.value.errorCount)
+    }
+
+    @Test
+    fun `custom search engines and shortcuts and hide dom node work properly`() {
+        val viewModel = BrowserDevToolsViewModel()
+
+        // 1. Test page HTML has no header nav bar
+        assertFalse(DevToolsScripts.PLAYGROUND_HTML.contains("<header id=\"site-header\""))
+
+        // 2. Custom search engine addition
+        viewModel.addCustomSearchEngine("Startpage", "https://www.startpage.com/sp/search?query=%s")
+        assertEquals("Startpage", viewModel.uiState.value.searchEngine.displayName)
+        assertTrue(viewModel.uiState.value.searchEngine.isCustom)
+        assertEquals(
+            "https://www.startpage.com/sp/search?query=kotlin+compose",
+            viewModel.uiState.value.searchEngine.formatSearchUrl("kotlin compose")
+        )
+
+        // 3. Shortcuts include pinned, most visited, and top bookmarks, and auto shortcuts can be pinned
+        val initialShortcuts = viewModel.uiState.value.homeShortcuts
+        assertTrue(initialShortcuts.any { it.isPinned && it.source == ShortcutSource.PINNED })
+        val autoVisited = initialShortcuts.first { !it.isPinned && it.source == ShortcutSource.MOST_VISITED }
+        viewModel.pinShortcut(autoVisited)
+        assertTrue(viewModel.uiState.value.pinnedShortcuts.any { it.url == autoVisited.url && it.isPinned })
+
+        // Add custom shortcut
+        viewModel.addCustomShortcut("GitHub", "https://github.com")
+        assertTrue(viewModel.uiState.value.homeShortcuts.any { it.title == "GitHub" && it.isPinned })
+
+        // 4. Hide DOM element applies display: none !important;
+        val sampleNode = DomNodeItem(
+            path = "node_1",
+            cssSelector = "section#customizable-box.card",
+            tag = "section",
+            idAttr = "customizable-box",
+            inlineStyle = "padding: 18px;"
+        )
+        viewModel.onBridgeDomTreeUpdated(listOf(sampleNode))
+        viewModel.hideDomNode("node_1")
+        val updatedNode = viewModel.uiState.value.selectedDomNode!!
+        assertTrue(updatedNode.inlineStyle.contains("display: none !important;"))
+        assertEquals("none", updatedNode.computedStyles["display"])
     }
 }

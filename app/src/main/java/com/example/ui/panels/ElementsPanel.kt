@@ -1,8 +1,10 @@
 package com.example.ui.panels
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,15 +29,18 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.example.model.BoxModelMetrics
 import com.example.model.DomNodeItem
 import com.example.ui.theme.BoxBorderColor
@@ -83,19 +89,21 @@ fun ElementsPanel(
     onSearchQueryChange: (String) -> Unit,
     onSelectNode: (DomNodeItem) -> Unit,
     onApplyInlineStyle: (String, String) -> Unit,
+    onHideNode: (String) -> Unit,
     onEditNodeText: (String, String) -> Unit,
     onSetAttribute: (String, String, String) -> Unit,
     onRemoveNode: (String) -> Unit,
     onAppendChildNode: (String, String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var activeSubTab by remember { mutableIntStateOf(0) } // 0: Styles, 1: Box Model, 2: Computed, 3: Edit DOM
+    var activeSubTab by remember { mutableIntStateOf(0) } // 0: Styles, 1: Box Model, 2: Computed, 3: DOM Actions
     var isInspectorExpanded by remember { mutableStateOf(true) }
+    var editingNodeDialogTarget by remember { mutableStateOf<DomNodeItem?>(null) }
     val clipboardManager = LocalClipboardManager.current
     val cs = MaterialTheme.colorScheme
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Compact CSS Selector Search Bar
+        // Compact CSS Selector Search Bar + Hold-to-edit hint
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -108,10 +116,10 @@ fun ElementsPanel(
                 modifier = Modifier
                     .weight(1f)
                     .height(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .background(cs.background)
-                    .border(1.dp, cs.outlineVariant, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp),
+                    .border(1.dp, cs.outlineVariant, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -134,7 +142,7 @@ fun ElementsPanel(
                     decorationBox = { innerTextField ->
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "Find by selector (e.g. button, #customizable-box)…",
+                                text = "Find by selector (hold element to edit)…",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = cs.onSurfaceVariant,
                                 maxLines = 1,
@@ -168,7 +176,7 @@ fun ElementsPanel(
 
         HorizontalDivider(thickness = 1.dp, color = cs.outlineVariant)
 
-        // DOM Tree View
+        // DOM Tree View (Press & hold any element to edit it)
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
@@ -182,12 +190,16 @@ fun ElementsPanel(
                 DomTreeNodeRow(
                     node = node,
                     isSelected = isSelected,
-                    onClick = { onSelectNode(node) }
+                    onClick = { onSelectNode(node) },
+                    onLongClick = {
+                        onSelectNode(node)
+                        editingNodeDialogTarget = node
+                    }
                 )
             }
         }
 
-        // Chrome DevTools Breadcrumb & Copy Selector Bar
+        // Chrome DevTools Breadcrumb & Quick Actions Bar
         if (selectedNode != null) {
             HorizontalDivider(thickness = 1.dp, color = cs.outlineVariant)
             Row(
@@ -212,7 +224,26 @@ fun ElementsPanel(
                 ) {
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(cs.primaryContainer)
+                            .clickable { editingNodeDialogTarget = selectedNode }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .testTag("quick_edit_selected_element_button"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Element",
+                            tint = cs.primary,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text("Edit", style = MaterialTheme.typography.labelSmall, color = cs.primary)
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 clipboardManager.setText(
                                     AnnotatedString(selectedNode.cssSelector.ifBlank { selectedNode.tag })
@@ -233,7 +264,7 @@ fun ElementsPanel(
 
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 clipboardManager.setText(AnnotatedString(selectedNode.outerHtmlPreview))
                             }
@@ -276,18 +307,18 @@ fun ElementsPanel(
                     val active = activeSubTab == idx && isInspectorExpanded
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(50))
                             .background(if (active) cs.primaryContainer else Color.Transparent)
                             .border(
                                 width = 1.dp,
                                 color = if (active) cs.primary else Color.Transparent,
-                                shape = RoundedCornerShape(6.dp)
+                                shape = RoundedCornerShape(50)
                             )
                             .clickable {
                                 activeSubTab = idx
                                 isInspectorExpanded = true
                             }
-                            .padding(horizontal = 9.dp, vertical = 3.dp)
+                            .padding(horizontal = 10.dp, vertical = 3.dp)
                             .testTag("elements_subtab_${title.lowercase().replace(" ", "_")}")
                     ) {
                         Text(
@@ -325,7 +356,7 @@ fun ElementsPanel(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Select any node in the DOM tree above",
+                            text = "Select any node in the DOM tree above (or press & hold to edit)",
                             style = MaterialTheme.typography.bodySmall,
                             color = cs.onSurfaceVariant
                         )
@@ -344,6 +375,7 @@ fun ElementsPanel(
                         )
                         3 -> DomMutationSubPane(
                             node = selectedNode,
+                            onHideNode = onHideNode,
                             onEditText = onEditNodeText,
                             onSetAttribute = onSetAttribute,
                             onRemoveNode = onRemoveNode,
@@ -355,22 +387,61 @@ fun ElementsPanel(
             }
         }
     }
+
+    // Press-and-Hold Edit Element Dialog
+    val modalTarget = editingNodeDialogTarget
+    if (modalTarget != null) {
+        val liveNode = domNodes.find { it.path == modalTarget.path } ?: modalTarget
+        EditElementModalDialog(
+            node = liveNode,
+            onDismiss = { editingNodeDialogTarget = null },
+            onSaveEdits = { newText, newStyle, attrKey, attrVal ->
+                if (newText != liveNode.textPreview) {
+                    onEditNodeText(liveNode.path, newText)
+                }
+                if (newStyle != liveNode.inlineStyle) {
+                    onApplyInlineStyle(liveNode.path, newStyle)
+                }
+                if (attrKey.isNotBlank()) {
+                    onSetAttribute(liveNode.path, attrKey.trim(), attrVal)
+                }
+                editingNodeDialogTarget = null
+            },
+            onHideElement = {
+                onHideNode(liveNode.path)
+                editingNodeDialogTarget = null
+            },
+            onRemoveElement = {
+                onRemoveNode(liveNode.path)
+                editingNodeDialogTarget = null
+            }
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DomTreeNodeRow(
     node: DomNodeItem,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
     val indentDp = (node.depth.coerceAtMost(10) * 12).dp
+    val isHidden = node.inlineStyle.contains("display: none", ignoreCase = true) ||
+        node.computedStyles["display"] == "none"
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(if (isSelected) cs.primaryContainer else Color.Transparent)
-            .clickable { onClick() }
-            .padding(start = 6.dp + indentDp, end = 8.dp, top = 2.5.dp, bottom = 2.5.dp),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+            .padding(start = 6.dp + indentDp, end = 8.dp, top = 3.dp, bottom = 3.dp)
+            .testTag("dom_node_${node.path}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (node.childCount > 0) {
@@ -403,7 +474,7 @@ private fun DomTreeNodeRow(
             if (node.inlineStyle.isNotEmpty()) {
                 withStyle(SpanStyle(color = SyntaxAttrName)) { append(" style=") }
                 withStyle(SpanStyle(color = DevEmerald)) {
-                    append("\"${node.inlineStyle.take(24)}…\"")
+                    append("\"${node.inlineStyle.take(28)}\"")
                 }
             }
             withStyle(SpanStyle(color = SyntaxTag, fontWeight = FontWeight.SemiBold)) {
@@ -427,6 +498,15 @@ private fun DomTreeNodeRow(
             modifier = Modifier.weight(1f)
         )
 
+        if (isHidden) {
+            Text(
+                text = "hidden",
+                style = MaterialTheme.typography.labelSmall,
+                color = DevRose,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
+
         if (isSelected) {
             Text(
                 text = "== \$0",
@@ -434,6 +514,196 @@ private fun DomTreeNodeRow(
                 color = DevAmber,
                 modifier = Modifier.padding(start = 4.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun EditElementModalDialog(
+    node: DomNodeItem,
+    onDismiss: () -> Unit,
+    onSaveEdits: (newText: String, newStyle: String, attrKey: String, attrVal: String) -> Unit,
+    onHideElement: () -> Unit,
+    onRemoveElement: () -> Unit
+) {
+    var editedText by remember(node.path) { mutableStateOf(node.textPreview) }
+    var editedStyle by remember(node.path) { mutableStateOf(node.inlineStyle) }
+    var attrKey by remember(node.path) { mutableStateOf("") }
+    var attrVal by remember(node.path) { mutableStateOf("") }
+    val cs = MaterialTheme.colorScheme
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            color = cs.surface,
+            shape = RoundedCornerShape(26.dp),
+            tonalElevation = 12.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.5.dp, cs.primary, RoundedCornerShape(26.dp))
+                .testTag("edit_element_dialog")
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Edit Element <${node.tag}>",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = cs.onSurface
+                        )
+                        Text(
+                            text = node.cssSelector.ifBlank { node.tag },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = cs.primary
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Edit Element Dialog",
+                        tint = cs.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable { onDismiss() }
+                    )
+                }
+
+                OutlinedTextField(
+                    value = editedText,
+                    onValueChange = { editedText = it },
+                    label = { Text("Text Content (innerText)", style = MaterialTheme.typography.labelSmall) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 12.sp, color = cs.onSurface),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_edit_text_input")
+                )
+
+                OutlinedTextField(
+                    value = editedStyle,
+                    onValueChange = { editedStyle = it },
+                    label = { Text("Inline Style (element.style)", style = MaterialTheme.typography.labelSmall) },
+                    placeholder = { Text("display: none !important; color: red;", style = MaterialTheme.typography.labelSmall) },
+                    minLines = 2,
+                    maxLines = 3,
+                    shape = RoundedCornerShape(14.dp),
+                    textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 11.sp, color = cs.onSurface),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_edit_style_input")
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = attrKey,
+                        onValueChange = { attrKey = it },
+                        label = { Text("Attr Name", style = MaterialTheme.typography.labelSmall) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 11.sp, color = cs.onSurface),
+                        modifier = Modifier.weight(0.45f)
+                    )
+                    OutlinedTextField(
+                        value = attrVal,
+                        onValueChange = { attrVal = it },
+                        label = { Text("Attr Value", style = MaterialTheme.typography.labelSmall) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 11.sp, color = cs.onSurface),
+                        modifier = Modifier.weight(0.55f)
+                    )
+                }
+
+                // Quick Hide & Remove Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(50))
+                            .background(DevAmber.copy(alpha = 0.2f))
+                            .border(1.dp, DevAmber, RoundedCornerShape(50))
+                            .clickable { onHideElement() }
+                            .padding(vertical = 9.dp)
+                            .testTag("dialog_hide_element_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VisibilityOff,
+                                contentDescription = null,
+                                tint = DevAmber,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Hide Element",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = DevAmber
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(50))
+                            .background(DevRose.copy(alpha = 0.2f))
+                            .border(1.dp, DevRose, RoundedCornerShape(50))
+                            .clickable { onRemoveElement() }
+                            .padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = null,
+                                tint = DevRose,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Remove Node",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = DevRose
+                            )
+                        }
+                    }
+                }
+
+                // Save Button
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(50))
+                        .background(cs.primary)
+                        .clickable { onSaveEdits(editedText, editedStyle, attrKey, attrVal) }
+                        .padding(vertical = 11.dp)
+                        .testTag("save_edit_element_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Apply Changes",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        color = cs.onPrimary
+                    )
+                }
+            }
         }
     }
 }
@@ -469,10 +739,10 @@ private fun StylesLiveEditorSubPane(
                 )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(DevEmerald)
                         .clickable { onApplyInlineStyle(node.path, styleText) }
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
                         .testTag("apply_inline_css_button")
                 ) {
                     Row(
@@ -506,6 +776,7 @@ private fun StylesLiveEditorSubPane(
                         color = cs.onSurfaceVariant
                     )
                 },
+                shape = RoundedCornerShape(14.dp),
                 textStyle = TextStyle(
                     fontFamily = JetBrainsMonoFamily,
                     fontSize = 11.sp,
@@ -529,20 +800,20 @@ private fun StylesLiveEditorSubPane(
                 val presets = listOf(
                     "Accent Border" to "border: 2px solid #38bdf8; background-color: rgba(56, 189, 248, 0.18); padding: 14px; border-radius: 12px;",
                     "Emerald" to "border: 2px solid #10b981; background-color: rgba(16, 185, 129, 0.18); color: #34d399; padding: 14px;",
-                    "Hide (display:none)" to "display: none;",
+                    "Hide (!important)" to "display: none !important;",
                     "Reset" to ""
                 )
                 presets.forEach { (label, css) ->
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(50))
                             .background(cs.surfaceVariant)
-                            .border(1.dp, cs.outline, RoundedCornerShape(6.dp))
+                            .border(1.dp, cs.outline, RoundedCornerShape(50))
                             .clickable {
                                 styleText = css
                                 onApplyInlineStyle(node.path, css)
                             }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = label,
@@ -568,9 +839,9 @@ private fun BoxModelDiagramSubPane(boxModel: BoxModelMetrics) {
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(BoxMarginColor.copy(alpha = 0.22f))
-                .border(1.dp, BoxMarginColor, RoundedCornerShape(8.dp))
+                .border(1.dp, BoxMarginColor, RoundedCornerShape(12.dp))
                 .padding(5.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -593,9 +864,9 @@ private fun BoxModelDiagramSubPane(boxModel: BoxModelMetrics) {
                     modifier = Modifier
                         .weight(1f)
                         .padding(horizontal = 6.dp, vertical = 2.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(BoxBorderColor.copy(alpha = 0.20f))
-                        .border(1.dp, BoxBorderColor, RoundedCornerShape(6.dp))
+                        .border(1.dp, BoxBorderColor, RoundedCornerShape(8.dp))
                         .padding(4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -687,7 +958,7 @@ private fun ComputedStylesSubPane(computedStyles: Map<String, String>) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(cs.background)
                     .padding(horizontal = 10.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -714,6 +985,7 @@ private fun ComputedStylesSubPane(computedStyles: Map<String, String>) {
 @Composable
 private fun DomMutationSubPane(
     node: DomNodeItem,
+    onHideNode: (String) -> Unit,
     onEditText: (String, String) -> Unit,
     onSetAttribute: (String, String, String) -> Unit,
     onRemoveNode: (String) -> Unit,
@@ -735,16 +1007,46 @@ private fun DomMutationSubPane(
     ) {
         item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Hide Element Action (display: none !important;)
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(50))
+                        .background(DevAmber.copy(alpha = 0.22f))
+                        .border(1.dp, DevAmber, RoundedCornerShape(50))
+                        .clickable { onHideNode(node.path) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .testTag("dom_action_hide_element")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VisibilityOff,
+                            contentDescription = "Hide Element (display: none !important;)",
+                            tint = DevAmber,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "Hide Element",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = DevAmber
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
                         .background(cs.primaryContainer)
-                        .border(1.dp, cs.primary, RoundedCornerShape(6.dp))
+                        .border(1.dp, cs.primary, RoundedCornerShape(50))
                         .clickable { onHighlightNode() }
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -762,11 +1064,11 @@ private fun DomMutationSubPane(
 
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(DevRose.copy(alpha = 0.2f))
-                        .border(1.dp, DevRose, RoundedCornerShape(6.dp))
+                        .border(1.dp, DevRose, RoundedCornerShape(50))
                         .clickable { onRemoveNode(node.path) }
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                         .testTag("delete_dom_node_button")
                 ) {
                     Row(
@@ -796,15 +1098,16 @@ private fun DomMutationSubPane(
                     onValueChange = { editedText = it },
                     label = { Text("innerText", style = MaterialTheme.typography.labelSmall) },
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
                     textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 11.sp, color = cs.onSurface),
                     modifier = Modifier.weight(1f)
                 )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(cs.primary)
                         .clickable { onEditText(node.path, editedText) }
-                        .padding(horizontal = 10.dp, vertical = 10.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = "Set Text",
@@ -826,6 +1129,7 @@ private fun DomMutationSubPane(
                     onValueChange = { attrKey = it },
                     label = { Text("Attribute", style = MaterialTheme.typography.labelSmall) },
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
                     textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 11.sp, color = cs.onSurface),
                     modifier = Modifier.weight(0.4f)
                 )
@@ -834,15 +1138,16 @@ private fun DomMutationSubPane(
                     onValueChange = { attrVal = it },
                     label = { Text("Value", style = MaterialTheme.typography.labelSmall) },
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
                     textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 11.sp, color = cs.onSurface),
                     modifier = Modifier.weight(0.4f)
                 )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(DevEmerald)
                         .clickable { onSetAttribute(node.path, attrKey, attrVal) }
-                        .padding(horizontal = 10.dp, vertical = 10.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = "Set Attr",
@@ -864,6 +1169,7 @@ private fun DomMutationSubPane(
                     onValueChange = { childTag = it },
                     label = { Text("Child <tag>", style = MaterialTheme.typography.labelSmall) },
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
                     textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 11.sp, color = cs.onSurface),
                     modifier = Modifier.weight(0.35f)
                 )
@@ -872,15 +1178,16 @@ private fun DomMutationSubPane(
                     onValueChange = { childText = it },
                     label = { Text("Child Text", style = MaterialTheme.typography.labelSmall) },
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
                     textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontSize = 11.sp, color = cs.onSurface),
                     modifier = Modifier.weight(0.45f)
                 )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(DevAmber)
                         .clickable { onAppendChildNode(node.path, childTag, childText) }
-                        .padding(horizontal = 8.dp, vertical = 10.dp)
+                        .padding(horizontal = 10.dp, vertical = 10.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = DevSlate950, modifier = Modifier.size(12.dp))

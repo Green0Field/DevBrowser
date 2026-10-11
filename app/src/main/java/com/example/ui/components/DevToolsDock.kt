@@ -71,6 +71,7 @@ fun DevToolsDock(
     onDomSearchChange: (String) -> Unit,
     onSelectDomNode: (com.example.model.DomNodeItem) -> Unit,
     onApplyInlineStyle: (String, String) -> Unit,
+    onHideNode: (String) -> Unit,
     onEditNodeText: (String, String) -> Unit,
     onSetAttribute: (String, String, String) -> Unit,
     onRemoveNode: (String) -> Unit,
@@ -168,15 +169,15 @@ fun DevToolsDock(
                         }
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (active) cs.surface else Color.Transparent)
+                                .clip(RoundedCornerShape(50))
+                                .background(if (active) cs.primaryContainer else Color.Transparent)
                                 .border(
                                     width = 1.dp,
                                     color = if (active) cs.primary else Color.Transparent,
-                                    shape = RoundedCornerShape(6.dp)
+                                    shape = RoundedCornerShape(50)
                                 )
                                 .clickable { onSelectTab(tab) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
                                 .testTag("devtools_tab_${tab.name.lowercase()}")
                         ) {
                             Row(
@@ -296,6 +297,7 @@ fun DevToolsDock(
                         onSearchQueryChange = onDomSearchChange,
                         onSelectNode = onSelectDomNode,
                         onApplyInlineStyle = onApplyInlineStyle,
+                        onHideNode = onHideNode,
                         onEditNodeText = onEditNodeText,
                         onSetAttribute = onSetAttribute,
                         onRemoveNode = onRemoveNode,

@@ -1,8 +1,13 @@
 package com.example.ui.pages
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,7 +34,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -37,9 +42,10 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Science
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,36 +62,68 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.model.BrowserTab
 import com.example.model.HistoryItem
+import com.example.model.HomeShortcut
 import com.example.model.QuickBookmark
-import com.example.model.SearchEngineOption
+import com.example.model.SearchEngineItem
+import com.example.model.ShortcutSource
 import com.example.model.ThemeAccentColor
+import java.util.Locale
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DevBrowserHomePage(
-    bookmarks: List<QuickBookmark>,
-    searchEngine: SearchEngineOption,
+    shortcuts: List<HomeShortcut>,
+    searchEngine: SearchEngineItem,
     onNavigate: (String) -> Unit,
-    onOpenDevTools: () -> Unit,
+    onPinShortcut: (HomeShortcut) -> Unit,
+    onAddShortcut: (String, String) -> Unit,
+    onUnpinShortcut: (HomeShortcut) -> Unit,
+    onRemoveShortcut: (HomeShortcut) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var searchInput by remember { mutableStateOf("") }
+    var showAddShortcutForm by remember { mutableStateOf(false) }
+    var newShortcutTitle by remember { mutableStateOf("") }
+    var newShortcutUrl by remember { mutableStateOf("https://") }
+    var statusBannerText by remember { mutableStateOf<String?>(null) }
+    var selectedPinnedShortcutMenu by remember { mutableStateOf<HomeShortcut?>(null) }
+
     val focusManager = LocalFocusManager.current
     val cs = MaterialTheme.colorScheme
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(cs.background)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        cs.primary.copy(alpha = 0.10f),
+                        cs.background,
+                        cs.background
+                    )
+                )
+            )
             .testTag("page_devbrowser_home"),
         contentAlignment = Alignment.TopCenter
     ) {
@@ -94,89 +132,104 @@ fun DevBrowserHomePage(
                 .widthIn(max = 600.dp)
                 .fillMaxSize()
                 .padding(horizontal = 20.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Brand Header
+            // Expressive Brand Header with Exact App Launcher Icon
             item {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Box(
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0xFF0F172A),
+                            tonalElevation = 8.dp,
                             modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(cs.primaryContainer)
-                                .border(1.dp, cs.primary, RoundedCornerShape(12.dp)),
-                            contentAlignment = Alignment.Center
+                                .size(52.dp)
+                                .border(2.dp, cs.primary, RoundedCornerShape(18.dp))
+                                .testTag("home_app_logo")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Code,
-                                contentDescription = null,
-                                tint = cs.primary,
-                                modifier = Modifier.size(24.dp)
+                            Image(
+                                painter = painterResource(id = R.drawable.img_launcher_icon_1791732376975),
+                                contentDescription = "DevBrowser App Logo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(4.dp)
+                                    .clip(RoundedCornerShape(14.dp))
                             )
                         }
-                        Text(
-                            text = "DevBrowser",
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = cs.onBackground
-                        )
+                        Column {
+                            Text(
+                                text = "DevBrowser",
+                                style = MaterialTheme.typography.displayLarge.copy(fontSize = 28.sp),
+                                color = cs.onBackground
+                            )
+                            Text(
+                                text = "Expressive Web Browser & Chrome DevTools",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = cs.primary
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Web Browser with Integrated Chrome DevTools",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = cs.onSurfaceVariant
+                }
+            }
+
+            // Expressive Pill Search / URL Bar with Active Search Engine Logo
+            item {
+                Surface(
+                    color = cs.surface,
+                    shape = RoundedCornerShape(50),
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.5.dp, cs.outline, RoundedCornerShape(50))
+                ) {
+                    OutlinedTextField(
+                        value = searchInput,
+                        onValueChange = { searchInput = it },
+                        placeholder = {
+                            Text(
+                                text = "Search ${searchEngine.displayName} or type a URL…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = cs.onSurfaceVariant
+                            )
+                        },
+                        leadingIcon = {
+                            Box(
+                                modifier = Modifier.padding(start = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                SearchEngineLogo(engine = searchEngine, size = 24.dp)
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(50),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                        keyboardActions = KeyboardActions(
+                            onGo = {
+                                if (searchInput.isNotBlank()) {
+                                    focusManager.clearFocus()
+                                    onNavigate(searchInput)
+                                }
+                            }
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home_search_input")
                     )
                 }
             }
 
-            // Home Search / URL Bar
-            item {
-                OutlinedTextField(
-                    value = searchInput,
-                    onValueChange = { searchInput = it },
-                    placeholder = {
-                        Text(
-                            text = "Search ${searchEngine.displayName} or type a URL…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = cs.onSurfaceVariant
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = cs.primary
-                        )
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(24.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(
-                        onGo = {
-                            if (searchInput.isNotBlank()) {
-                                focusManager.clearFocus()
-                                onNavigate(searchInput)
-                            }
-                        }
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("home_search_input")
-                )
-            }
-
-            // Internal Pages Quick Strip
+            // Internal Pages Expressive Pill Strip
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
                 ) {
                     InternalLinkChip(
                         icon = Icons.Default.Bookmarks,
@@ -201,76 +254,346 @@ fun DevBrowserHomePage(
                 }
             }
 
-            // Pinned Bookmarks Grid
+            // Shortcuts Section (Separate from Bookmarks; auto-added from Most Visited & Top Bookmarks; hold to pin)
             item {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_shortcuts_section"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Bookmarks",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = cs.onBackground
-                        )
-                        Text(
-                            text = "Manage →",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = cs.primary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { onNavigate(BrowserTab.URL_BOOKMARKS) }
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
+                        Column {
+                            Text(
+                                text = "Shortcuts",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = cs.onBackground
+                            )
+                            Text(
+                                text = "Auto-added from most visited & bookmarks • Hold to pin",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = cs.onSurfaceVariant
+                            )
+                        }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        bookmarks.chunked(2).forEach { rowBookmarks ->
+                        Surface(
+                            color = cs.primaryContainer,
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .border(1.dp, cs.primary, RoundedCornerShape(50))
+                                .clip(RoundedCornerShape(50))
+                                .clickable { showAddShortcutForm = !showAddShortcutForm }
+                                .testTag("add_shortcut_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Add Shortcut",
+                                    tint = cs.primary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "Add Shortcut",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = cs.primary
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = statusBannerText != null) {
+                        statusBannerText?.let { msg ->
+                            Surface(
+                                color = cs.primaryContainer,
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, cs.primary, RoundedCornerShape(16.dp))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = msg,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = cs.primary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Dismiss",
+                                        tint = cs.primary,
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { statusBannerText = null }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = showAddShortcutForm) {
+                        Surface(
+                            color = cs.surface,
+                            shape = RoundedCornerShape(22.dp),
+                            tonalElevation = 4.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.5.dp, cs.primary, RoundedCornerShape(22.dp))
+                                .testTag("add_shortcut_form")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = "New Pinned Shortcut",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = cs.primary
+                                )
+                                OutlinedTextField(
+                                    value = newShortcutTitle,
+                                    onValueChange = { newShortcutTitle = it },
+                                    label = { Text("Shortcut Name") },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("shortcut_title_input")
+                                )
+                                OutlinedTextField(
+                                    value = newShortcutUrl,
+                                    onValueChange = { newShortcutUrl = it },
+                                    label = { Text("URL (e.g. https://github.com)") },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("shortcut_url_input")
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(50))
+                                            .background(cs.primary)
+                                            .clickable {
+                                                if (newShortcutUrl.isNotBlank()) {
+                                                    val cleanTitle = newShortcutTitle.ifBlank {
+                                                        newShortcutUrl.removePrefix("https://").removePrefix("http://")
+                                                    }
+                                                    onAddShortcut(cleanTitle, newShortcutUrl.trim())
+                                                    statusBannerText = "Added & pinned '$cleanTitle' to Shortcuts"
+                                                    newShortcutTitle = ""
+                                                    newShortcutUrl = "https://"
+                                                    showAddShortcutForm = false
+                                                }
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 9.dp)
+                                            .testTag("save_shortcut_button")
+                                    ) {
+                                        Text(
+                                            text = "Pin Shortcut",
+                                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                            color = cs.onPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Action banner when long-pressing an already-pinned shortcut
+                    AnimatedVisibility(visible = selectedPinnedShortcutMenu != null) {
+                        selectedPinnedShortcutMenu?.let { target ->
+                            Surface(
+                                color = cs.surfaceVariant,
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, cs.primary, RoundedCornerShape(18.dp))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = target.title,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = cs.onSurface
+                                        )
+                                        Text(
+                                            text = "Pinned shortcut options",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = cs.onSurfaceVariant
+                                        )
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(50))
+                                                .background(cs.surface)
+                                                .border(1.dp, cs.outline, RoundedCornerShape(50))
+                                                .clickable {
+                                                    onUnpinShortcut(target)
+                                                    selectedPinnedShortcutMenu = null
+                                                    statusBannerText = "Unpinned '${target.title}'"
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("Unpin", style = MaterialTheme.typography.labelSmall, color = cs.primary)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(50))
+                                                .background(cs.error.copy(alpha = 0.16f))
+                                                .border(1.dp, cs.error, RoundedCornerShape(50))
+                                                .clickable {
+                                                    onRemoveShortcut(target)
+                                                    selectedPinnedShortcutMenu = null
+                                                    statusBannerText = "Removed '${target.title}'"
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("Remove", style = MaterialTheme.typography.labelSmall, color = cs.error)
+                                        }
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Cancel",
+                                            tint = cs.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .align(Alignment.CenterVertically)
+                                                .clickable { selectedPinnedShortcutMenu = null }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Expressive 2-column Grid of Shortcuts
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        shortcuts.chunked(2).forEach { rowShortcuts ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                rowBookmarks.forEach { bm ->
+                                rowShortcuts.forEach { sc ->
                                     Surface(
-                                        color = cs.surface,
-                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (sc.isPinned) cs.surface else cs.surface.copy(alpha = 0.85f),
+                                        shape = RoundedCornerShape(22.dp),
+                                        tonalElevation = if (sc.isPinned) 4.dp else 1.dp,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .border(1.dp, cs.outlineVariant, RoundedCornerShape(12.dp))
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .clickable { onNavigate(bm.url) }
+                                            .border(
+                                                width = if (sc.isPinned) 1.5.dp else 1.dp,
+                                                color = if (sc.isPinned) cs.primary.copy(alpha = 0.65f) else cs.outlineVariant,
+                                                shape = RoundedCornerShape(22.dp)
+                                            )
+                                            .clip(RoundedCornerShape(22.dp))
+                                            .combinedClickable(
+                                                onClick = { onNavigate(sc.url) },
+                                                onLongClick = {
+                                                    if (!sc.isPinned) {
+                                                        onPinShortcut(sc)
+                                                        statusBannerText = "Pinned '${sc.title}' to Shortcuts!"
+                                                    } else {
+                                                        selectedPinnedShortcutMenu = sc
+                                                    }
+                                                }
+                                            )
+                                            .testTag("shortcut_card_${sc.id}")
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        Column(
+                                            modifier = Modifier.padding(14.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(32.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(cs.primaryContainer),
-                                                contentAlignment = Alignment.Center
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Icon(
-                                                    imageVector = if (bm.url == BrowserTab.URL_TEST) Icons.Default.Science else Icons.Default.Language,
-                                                    contentDescription = null,
-                                                    tint = cs.primary,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(36.dp)
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .background(cs.primaryContainer),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = when {
+                                                            sc.url == BrowserTab.URL_TEST -> Icons.Default.Science
+                                                            sc.source == ShortcutSource.TOP_BOOKMARK -> Icons.Default.Bookmark
+                                                            sc.source == ShortcutSource.MOST_VISITED -> Icons.Default.TrendingUp
+                                                            else -> Icons.Default.Language
+                                                        },
+                                                        contentDescription = null,
+                                                        tint = cs.primary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+
+                                                // Pinned vs Auto-Added Badge
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(50))
+                                                        .background(
+                                                            if (sc.isPinned) cs.primaryContainer
+                                                            else cs.surfaceVariant
+                                                        )
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    ) {
+                                                        if (sc.isPinned) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.PushPin,
+                                                                contentDescription = "Pinned",
+                                                                tint = cs.primary,
+                                                                modifier = Modifier.size(10.dp)
+                                                            )
+                                                        }
+                                                        Text(
+                                                            text = if (sc.isPinned) "Pinned" else sc.source.badgeLabel,
+                                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                                            color = if (sc.isPinned) cs.primary else cs.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
                                             }
-                                            Column(modifier = Modifier.weight(1f)) {
+
+                                            Column {
                                                 Text(
-                                                    text = bm.title,
-                                                    style = MaterialTheme.typography.titleSmall,
+                                                    text = sc.title,
+                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                                     color = cs.onSurface,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = bm.url.removePrefix("https://"),
+                                                    text = if (sc.isPinned) {
+                                                        sc.url.removePrefix("https://")
+                                                    } else {
+                                                        "Hold to pin • ${sc.url.removePrefix("https://")}"
+                                                    },
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = cs.onSurfaceVariant,
                                                     maxLines = 1,
@@ -280,13 +603,176 @@ fun DevBrowserHomePage(
                                         }
                                     }
                                 }
-                                if (rowBookmarks.size == 1) {
+                                if (rowShortcuts.size == 1) {
                                     Spacer(modifier = Modifier.weight(1f))
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SearchEngineLogo(
+    engine: SearchEngineItem,
+    size: Dp = 22.dp,
+    modifier: Modifier = Modifier
+) {
+    val lowerId = engine.id.lowercase(Locale.US)
+    val lowerName = engine.displayName.lowercase(Locale.US)
+    val lowerUrl = engine.queryTemplate.lowercase(Locale.US)
+
+    Canvas(
+        modifier = modifier
+            .size(size)
+            .testTag("search_engine_logo_${engine.id}")
+    ) {
+        val w = this.size.width
+        val h = this.size.height
+        val center = Offset(w / 2f, h / 2f)
+        val radius = w.coerceAtMost(h) / 2f
+
+        when {
+            lowerId == "google" || lowerName.contains("google") || lowerUrl.contains("google.") -> {
+                // White badge background
+                drawCircle(color = Color.White, radius = radius, center = center)
+                val arcStroke = Stroke(width = w * 0.20f, cap = StrokeCap.Butt)
+                val inset = w * 0.22f
+                val arcSize = Size(w - inset * 2, h - inset * 2)
+                val topLeft = Offset(inset, inset)
+                // Red top arc
+                drawArc(
+                    color = Color(0xFFEA4335),
+                    startAngle = -145f,
+                    sweepAngle = 105f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = arcStroke
+                )
+                // Yellow left arc
+                drawArc(
+                    color = Color(0xFFFBBC05),
+                    startAngle = 140f,
+                    sweepAngle = 75f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = arcStroke
+                )
+                // Green bottom arc
+                drawArc(
+                    color = Color(0xFF34A853),
+                    startAngle = 45f,
+                    sweepAngle = 95f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = arcStroke
+                )
+                // Blue right arc + crossbar
+                drawArc(
+                    color = Color(0xFF4285F4),
+                    startAngle = -12f,
+                    sweepAngle = 57f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = arcStroke
+                )
+                drawLine(
+                    color = Color(0xFF4285F4),
+                    start = Offset(w * 0.50f, h * 0.50f),
+                    end = Offset(w * 0.84f, h * 0.50f),
+                    strokeWidth = w * 0.19f,
+                    cap = StrokeCap.Butt
+                )
+            }
+
+            lowerId == "duckduckgo" || lowerName.contains("duck") || lowerUrl.contains("duckduckgo") -> {
+                // DuckDuckGo Orange Circle
+                drawCircle(color = Color(0xFFDE5833), radius = radius, center = center)
+                // White Duck Head & Neck silhouette
+                drawCircle(
+                    color = Color.White,
+                    radius = radius * 0.42f,
+                    center = Offset(w * 0.44f, h * 0.43f)
+                )
+                drawRoundRect(
+                    color = Color.White,
+                    topLeft = Offset(w * 0.32f, h * 0.45f),
+                    size = Size(w * 0.25f, h * 0.36f)
+                )
+                // Yellow-Orange Duck Bill
+                val billPath = Path().apply {
+                    moveTo(w * 0.56f, h * 0.37f)
+                    lineTo(w * 0.84f, h * 0.44f)
+                    lineTo(w * 0.56f, h * 0.53f)
+                    close()
+                }
+                drawPath(path = billPath, color = Color(0xFFFFCC33))
+                // Green Bow Tie
+                drawCircle(
+                    color = Color(0xFF4DAA57),
+                    radius = radius * 0.15f,
+                    center = Offset(w * 0.45f, h * 0.76f)
+                )
+            }
+
+            lowerId == "bing" || lowerName.contains("bing") || lowerUrl.contains("bing.") -> {
+                // Microsoft Bing Teal-Blue Circle + Geometric 'b' Ribbon
+                drawCircle(color = Color(0xFF008373), radius = radius, center = center)
+                val bPath = Path().apply {
+                    moveTo(w * 0.34f, h * 0.20f)
+                    lineTo(w * 0.48f, h * 0.26f)
+                    lineTo(w * 0.48f, h * 0.58f)
+                    lineTo(w * 0.72f, h * 0.46f)
+                    lineTo(w * 0.64f, h * 0.76f)
+                    lineTo(w * 0.34f, h * 0.66f)
+                    close()
+                }
+                drawPath(path = bPath, color = Color(0xFF00E5FF))
+            }
+
+            lowerId == "brave" || lowerName.contains("brave") || lowerUrl.contains("brave.") -> {
+                // Brave Lion Orange-Crimson Shield
+                drawCircle(color = Color(0xFFFB542B), radius = radius, center = center)
+                val shield = Path().apply {
+                    moveTo(w * 0.50f, h * 0.18f)
+                    lineTo(w * 0.78f, h * 0.30f)
+                    lineTo(w * 0.68f, h * 0.72f)
+                    lineTo(w * 0.50f, h * 0.85f)
+                    lineTo(w * 0.32f, h * 0.72f)
+                    lineTo(w * 0.22f, h * 0.30f)
+                    close()
+                }
+                drawPath(path = shield, color = Color.White)
+                drawCircle(
+                    color = Color(0xFFFB542B),
+                    radius = radius * 0.22f,
+                    center = Offset(w * 0.50f, h * 0.48f)
+                )
+            }
+
+            else -> {
+                // Custom Search Engine Emblem (Vibrant Indigo/Cyan Circle + Search Magnifier Ring)
+                drawCircle(color = Color(0xFF6366F1), radius = radius, center = center)
+                drawCircle(
+                    color = Color.White,
+                    radius = radius * 0.36f,
+                    center = Offset(w * 0.44f, h * 0.44f),
+                    style = Stroke(width = w * 0.12f)
+                )
+                drawLine(
+                    color = Color.White,
+                    start = Offset(w * 0.58f, h * 0.58f),
+                    end = Offset(w * 0.78f, h * 0.78f),
+                    strokeWidth = w * 0.13f,
+                    cap = StrokeCap.Round
+                )
             }
         }
     }
@@ -301,14 +787,15 @@ private fun InternalLinkChip(
     val cs = MaterialTheme.colorScheme
     Surface(
         color = cs.surface,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(50),
+        tonalElevation = 3.dp,
         modifier = Modifier
-            .border(1.dp, cs.outlineVariant, RoundedCornerShape(10.dp))
-            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
+            .clip(RoundedCornerShape(50))
             .clickable { onClick() }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -316,11 +803,11 @@ private fun InternalLinkChip(
                 imageVector = icon,
                 contentDescription = null,
                 tint = cs.primary,
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(16.dp)
             )
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = cs.onSurface
             )
         }
@@ -330,6 +817,7 @@ private fun InternalLinkChip(
 @Composable
 fun DevBrowserBookmarksPage(
     bookmarks: List<QuickBookmark>,
+    onOpenBookmark: (QuickBookmark) -> Unit,
     onSelectUrl: (String) -> Unit,
     onAddBookmark: (String, String) -> Unit,
     onRemoveBookmark: (String) -> Unit,
@@ -352,7 +840,7 @@ fun DevBrowserBookmarksPage(
                 .widthIn(max = 600.dp)
                 .fillMaxSize()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
                 Row(
@@ -367,7 +855,7 @@ fun DevBrowserBookmarksPage(
                             color = cs.onBackground
                         )
                         Text(
-                            text = "${bookmarks.size} saved sites • devbrowser:bookmarks",
+                            text = "${bookmarks.size} saved sites • Most clicked auto-appear in Shortcuts",
                             style = MaterialTheme.typography.labelSmall,
                             color = cs.onSurfaceVariant
                         )
@@ -375,10 +863,10 @@ fun DevBrowserBookmarksPage(
 
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(50))
                             .background(cs.primary)
                             .clickable { showAddForm = !showAddForm }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .padding(horizontal = 14.dp, vertical = 9.dp)
                             .testTag("add_bookmark_form_toggle")
                     ) {
                         Row(
@@ -405,18 +893,19 @@ fun DevBrowserBookmarksPage(
                 item {
                     Surface(
                         color = cs.surface,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(22.dp),
+                        tonalElevation = 4.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, cs.primary, RoundedCornerShape(12.dp))
+                            .border(1.5.dp, cs.primary, RoundedCornerShape(22.dp))
                     ) {
                         Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
                                 text = "New Bookmark",
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 color = cs.primary
                             )
                             OutlinedTextField(
@@ -424,6 +913,7 @@ fun DevBrowserBookmarksPage(
                                 onValueChange = { newTitle = it },
                                 label = { Text("Title") },
                                 singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             )
                             OutlinedTextField(
@@ -431,6 +921,7 @@ fun DevBrowserBookmarksPage(
                                 onValueChange = { newUrl = it },
                                 label = { Text("URL (e.g. https://github.com or devbrowser:test)") },
                                 singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Row(
@@ -439,7 +930,7 @@ fun DevBrowserBookmarksPage(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(RoundedCornerShape(50))
                                         .background(cs.primary)
                                         .clickable {
                                             if (newUrl.isNotBlank()) {
@@ -452,7 +943,7 @@ fun DevBrowserBookmarksPage(
                                                 showAddForm = false
                                             }
                                         }
-                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                        .padding(horizontal = 16.dp, vertical = 9.dp)
                                 ) {
                                     Text(
                                         text = "Save Bookmark",
@@ -485,15 +976,16 @@ fun DevBrowserBookmarksPage(
                 items(bookmarks, key = { it.url }) { bm ->
                     Surface(
                         color = cs.surface,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        tonalElevation = 2.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, cs.outlineVariant, RoundedCornerShape(12.dp))
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onSelectUrl(bm.url) }
+                            .border(1.dp, cs.outlineVariant, RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(20.dp))
+                            .clickable { onOpenBookmark(bm) }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -502,12 +994,20 @@ fun DevBrowserBookmarksPage(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Bookmark,
-                                    contentDescription = null,
-                                    tint = cs.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(cs.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bookmark,
+                                        contentDescription = null,
+                                        tint = cs.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                                 Column {
                                     Text(
                                         text = bm.title,
@@ -590,11 +1090,11 @@ fun DevBrowserHistoryPage(
                     if (history.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(50))
                                 .background(cs.error.copy(alpha = 0.16f))
-                                .border(1.dp, cs.error, RoundedCornerShape(10.dp))
+                                .border(1.dp, cs.error, RoundedCornerShape(50))
                                 .clickable { onClearHistory() }
-                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
                                 .testTag("clear_history_button")
                         ) {
                             Row(
@@ -637,15 +1137,16 @@ fun DevBrowserHistoryPage(
                 items(history, key = { it.id }) { item ->
                     Surface(
                         color = cs.surface,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        tonalElevation = 2.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, cs.outlineVariant, RoundedCornerShape(12.dp))
-                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, cs.outlineVariant, RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(20.dp))
                             .clickable { onSelectUrl(item.url) }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -711,18 +1212,24 @@ fun DevBrowserSettingsPage(
     isDarkTheme: Boolean,
     isNeonMode: Boolean,
     accentColor: ThemeAccentColor,
-    searchEngine: SearchEngineOption,
+    searchEngines: List<SearchEngineItem>,
+    searchEngine: SearchEngineItem,
     javaScriptEnabled: Boolean,
     onSetDarkTheme: (Boolean) -> Unit,
     onSetNeonMode: (Boolean) -> Unit,
     onSelectAccentColor: (ThemeAccentColor) -> Unit,
-    onSelectSearchEngine: (SearchEngineOption) -> Unit,
+    onSelectSearchEngine: (SearchEngineItem) -> Unit,
+    onAddCustomSearchEngine: (String, String) -> Unit,
+    onRemoveCustomSearchEngine: (String) -> Unit,
     onToggleJavaScript: (Boolean) -> Unit,
     onClearSiteData: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
     var clearedDataFeedback by remember { mutableStateOf(false) }
+    var showAddEngineForm by remember { mutableStateOf(false) }
+    var customEngineName by remember { mutableStateOf("") }
+    var customEngineUrl by remember { mutableStateOf("https://") }
 
     Box(
         modifier = modifier
@@ -746,25 +1253,26 @@ fun DevBrowserSettingsPage(
                         color = cs.onBackground
                     )
                     Text(
-                        text = "Customize themes, colors, and browser behavior • devbrowser:settings",
+                        text = "Customize themes, search engines, and browser behavior • devbrowser:settings",
                         style = MaterialTheme.typography.labelSmall,
                         color = cs.onSurfaceVariant
                     )
                 }
             }
 
-            // 1. Theme Mode (Dark Mode Default vs Light Mode)
+            // 1. Theme Mode (Dark Mode Default vs Light Mode) + Neon Switch Only
             item {
                 Surface(
                     color = cs.surface,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    tonalElevation = 4.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, cs.outlineVariant, RoundedCornerShape(14.dp))
+                        .border(1.dp, cs.outlineVariant, RoundedCornerShape(24.dp))
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -794,19 +1302,19 @@ fun DevBrowserSettingsPage(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Dark Mode Card
+                            // Dark Mode Pill Card
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(50))
                                     .background(if (isDarkTheme) cs.primaryContainer else cs.surfaceVariant)
                                     .border(
                                         width = if (isDarkTheme) 2.dp else 1.dp,
                                         color = if (isDarkTheme) cs.primary else cs.outlineVariant,
-                                        shape = RoundedCornerShape(10.dp)
+                                        shape = RoundedCornerShape(50)
                                     )
                                     .clickable { onSetDarkTheme(true) }
-                                    .padding(12.dp)
+                                    .padding(vertical = 12.dp, horizontal = 12.dp)
                                     .testTag("theme_mode_dark"),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -830,19 +1338,19 @@ fun DevBrowserSettingsPage(
                                 }
                             }
 
-                            // Light Mode Card
+                            // Light Mode Pill Card
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(50))
                                     .background(if (!isDarkTheme) cs.primaryContainer else cs.surfaceVariant)
                                     .border(
                                         width = if (!isDarkTheme) 2.dp else 1.dp,
                                         color = if (!isDarkTheme) cs.primary else cs.outlineVariant,
-                                        shape = RoundedCornerShape(10.dp)
+                                        shape = RoundedCornerShape(50)
                                     )
                                     .clickable { onSetDarkTheme(false) }
-                                    .padding(12.dp)
+                                    .padding(vertical = 12.dp, horizontal = 12.dp)
                                     .testTag("theme_mode_light"),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -869,7 +1377,7 @@ fun DevBrowserSettingsPage(
 
                         HorizontalDivider(color = cs.outlineVariant)
 
-                        // Neon vs No-Neon Toggle (Default: Neon ON)
+                        // Neon Mode Toggle (Switch only, Default: On)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -906,83 +1414,6 @@ fun DevBrowserSettingsPage(
                                 modifier = Modifier.testTag("neon_mode_switch")
                             )
                         }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            // Neon On Card
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isNeonMode) cs.primaryContainer else cs.surfaceVariant)
-                                    .border(
-                                        width = if (isNeonMode) 2.dp else 1.dp,
-                                        color = if (isNeonMode) cs.primary else cs.outlineVariant,
-                                        shape = RoundedCornerShape(10.dp)
-                                    )
-                                    .clickable { onSetNeonMode(true) }
-                                    .padding(12.dp)
-                                    .testTag("theme_neon_on"),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = if (isNeonMode) cs.primary else cs.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "Neon (Default)",
-                                        style = MaterialTheme.typography.labelLarge.copy(
-                                            fontWeight = if (isNeonMode) FontWeight.Bold else FontWeight.Medium
-                                        ),
-                                        color = cs.onSurface
-                                    )
-                                }
-                            }
-
-                            // No Neon Card
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (!isNeonMode) cs.primaryContainer else cs.surfaceVariant)
-                                    .border(
-                                        width = if (!isNeonMode) 2.dp else 1.dp,
-                                        color = if (!isNeonMode) cs.primary else cs.outlineVariant,
-                                        shape = RoundedCornerShape(10.dp)
-                                    )
-                                    .clickable { onSetNeonMode(false) }
-                                    .padding(12.dp)
-                                    .testTag("theme_neon_off"),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Palette,
-                                        contentDescription = null,
-                                        tint = if (!isNeonMode) cs.primary else cs.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "No Neon",
-                                        style = MaterialTheme.typography.labelLarge.copy(
-                                            fontWeight = if (!isNeonMode) FontWeight.Bold else FontWeight.Medium
-                                        ),
-                                        color = cs.onSurface
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -991,13 +1422,14 @@ fun DevBrowserSettingsPage(
             item {
                 Surface(
                     color = cs.surface,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    tonalElevation = 4.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, cs.outlineVariant, RoundedCornerShape(14.dp))
+                        .border(1.dp, cs.outlineVariant, RoundedCornerShape(24.dp))
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(
@@ -1017,11 +1449,11 @@ fun DevBrowserSettingsPage(
                             )
                         }
 
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             ThemeAccentColor.entries.chunked(4).forEach { rowColors ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     rowColors.forEach { colorOption ->
                                         val isSelected = accentColor == colorOption
@@ -1034,25 +1466,25 @@ fun DevBrowserSettingsPage(
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
-                                                .clip(RoundedCornerShape(10.dp))
+                                                .clip(RoundedCornerShape(18.dp))
                                                 .background(tileBgColor)
                                                 .border(
                                                     width = if (isSelected) 2.dp else 1.dp,
                                                     color = if (isSelected) swatchColor else cs.outlineVariant,
-                                                    shape = RoundedCornerShape(10.dp)
+                                                    shape = RoundedCornerShape(18.dp)
                                                 )
                                                 .clickable { onSelectAccentColor(colorOption) }
-                                                .padding(vertical = 10.dp, horizontal = 6.dp)
+                                                .padding(vertical = 12.dp, horizontal = 6.dp)
                                                 .testTag("theme_color_${colorOption.name.lowercase()}"),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Column(
                                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                verticalArrangement = Arrangement.spacedBy(5.dp)
                                             ) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(22.dp)
+                                                        .size(24.dp)
                                                         .clip(CircleShape)
                                                         .background(swatchColor),
                                                     contentAlignment = Alignment.Center
@@ -1062,7 +1494,7 @@ fun DevBrowserSettingsPage(
                                                             imageVector = Icons.Default.Check,
                                                             contentDescription = null,
                                                             tint = if (colorOption == ThemeAccentColor.YELLOW) Color.Black else Color.White,
-                                                            modifier = Modifier.size(13.dp)
+                                                            modifier = Modifier.size(14.dp)
                                                         )
                                                     }
                                                 }
@@ -1083,51 +1515,176 @@ fun DevBrowserSettingsPage(
                 }
             }
 
-            // 3. Search Engine & WebView Settings
+            // 3. Search Engine with Logos + '+' Button for Custom Search Engines & WebView Settings
             item {
                 Surface(
                     color = cs.surface,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    tonalElevation = 4.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, cs.outlineVariant, RoundedCornerShape(14.dp))
+                        .border(1.dp, cs.outlineVariant, RoundedCornerShape(24.dp))
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text(
-                            text = "Default Search Engine",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = cs.onSurface
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Search Engine",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = cs.onSurface
+                                )
+                                Text(
+                                    text = "Select a search engine or tap + to add your own",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = cs.onSurfaceVariant
+                                )
+                            }
+
+                            // '+' Button to Add Custom Search Engine
+                            Surface(
+                                color = cs.primaryContainer,
+                                shape = CircleShape,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .border(1.5.dp, cs.primary, CircleShape)
+                                    .clip(CircleShape)
+                                    .clickable { showAddEngineForm = !showAddEngineForm }
+                                    .testTag("add_search_engine_button")
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add Custom Search Engine",
+                                        tint = cs.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            SearchEngineOption.entries.forEach { engine ->
-                                val selected = searchEngine == engine
+                            searchEngines.forEach { engine ->
+                                val selected = searchEngine.id == engine.id
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(RoundedCornerShape(50))
                                         .background(if (selected) cs.primaryContainer else cs.surfaceVariant)
                                         .border(
-                                            width = 1.dp,
+                                            width = if (selected) 2.dp else 1.dp,
                                             color = if (selected) cs.primary else cs.outlineVariant,
-                                            shape = RoundedCornerShape(8.dp)
+                                            shape = RoundedCornerShape(50)
                                         )
                                         .clickable { onSelectSearchEngine(engine) }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        .padding(horizontal = 14.dp, vertical = 9.dp)
+                                        .testTag("search_engine_chip_${engine.id}")
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        SearchEngineLogo(engine = engine, size = 20.dp)
+                                        Text(
+                                            text = engine.displayName,
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                            ),
+                                            color = if (selected) cs.primary else cs.onSurface
+                                        )
+                                        if (engine.isCustom) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove ${engine.displayName}",
+                                                tint = cs.onSurfaceVariant,
+                                                modifier = Modifier
+                                                    .size(15.dp)
+                                                    .clickable { onRemoveCustomSearchEngine(engine.id) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        AnimatedVisibility(visible = showAddEngineForm) {
+                            Surface(
+                                color = cs.surfaceVariant,
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, cs.primary, RoundedCornerShape(20.dp))
+                                    .testTag("custom_search_engine_form")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     Text(
-                                        text = engine.displayName,
-                                        style = MaterialTheme.typography.labelLarge.copy(
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-                                        ),
-                                        color = if (selected) cs.primary else cs.onSurface
+                                        text = "Add Custom Search Engine",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = cs.primary
                                     )
+                                    OutlinedTextField(
+                                        value = customEngineName,
+                                        onValueChange = { customEngineName = it },
+                                        label = { Text("Search Engine Name (e.g. Startpage, GitHub)") },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("custom_search_engine_name_input")
+                                    )
+                                    OutlinedTextField(
+                                        value = customEngineUrl,
+                                        onValueChange = { customEngineUrl = it },
+                                        label = { Text("Query URL with %s (e.g. https://www.startpage.com/sp/search?query=%s)") },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("custom_search_engine_url_input")
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(50))
+                                                .background(cs.primary)
+                                                .clickable {
+                                                    if (customEngineName.isNotBlank() && customEngineUrl.isNotBlank()) {
+                                                        onAddCustomSearchEngine(
+                                                            customEngineName.trim(),
+                                                            customEngineUrl.trim()
+                                                        )
+                                                        customEngineName = ""
+                                                        customEngineUrl = "https://"
+                                                        showAddEngineForm = false
+                                                    }
+                                                }
+                                                .padding(horizontal = 16.dp, vertical = 9.dp)
+                                                .testTag("save_custom_search_engine_button")
+                                        ) {
+                                            Text(
+                                                text = "Add Search Engine",
+                                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                                color = cs.onPrimary
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1179,14 +1736,14 @@ fun DevBrowserSettingsPage(
                             }
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(RoundedCornerShape(50))
                                     .background(cs.error.copy(alpha = 0.16f))
-                                    .border(1.dp, cs.error, RoundedCornerShape(8.dp))
+                                    .border(1.dp, cs.error, RoundedCornerShape(50))
                                     .clickable {
                                         onClearSiteData()
                                         clearedDataFeedback = true
                                     }
-                                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
                             ) {
                                 Text(
                                     text = "Clear Data",

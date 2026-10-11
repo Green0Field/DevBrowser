@@ -15,12 +15,14 @@ import com.example.model.DevToolsPanelTab
 import com.example.model.DeviceViewportPreset
 import com.example.model.DomNodeItem
 import com.example.model.HistoryItem
+import com.example.model.HomeShortcut
 import com.example.model.JsSnippet
 import com.example.model.NetworkRequestEntry
 import com.example.model.NetworkResourceType
 import com.example.model.PerformanceMetrics
 import com.example.model.QuickBookmark
-import com.example.model.SearchEngineOption
+import com.example.model.SearchEngineItem
+import com.example.model.ShortcutSource
 import com.example.model.StorageEntry
 import com.example.model.StorageType
 import com.example.model.ThemeAccentColor
@@ -51,7 +53,8 @@ data class BrowserUiState(
     val isDarkTheme: Boolean = true,
     val isNeonMode: Boolean = true,
     val accentColor: ThemeAccentColor = ThemeAccentColor.BLUE,
-    val searchEngine: SearchEngineOption = SearchEngineOption.DUCKDUCKGO,
+    val searchEngines: List<SearchEngineItem> = SearchEngineItem.DEFAULT_ENGINES,
+    val searchEngine: SearchEngineItem = SearchEngineItem.DUCKDUCKGO,
     val javaScriptEnabled: Boolean = true,
     val domNodes: List<DomNodeItem> = emptyList(),
     val selectedDomNode: DomNodeItem? = null,
@@ -77,6 +80,22 @@ data class BrowserUiState(
     val pageSourceHtml: String = "",
     val sourceSearchQuery: String = "",
     val bookmarks: List<QuickBookmark> = DevToolsScripts.DEFAULT_BOOKMARKS,
+    val pinnedShortcuts: List<HomeShortcut> = DevToolsScripts.DEFAULT_PINNED_SHORTCUTS,
+    val dismissedAutoShortcutUrls: Set<String> = emptySet(),
+    val siteVisitCounts: Map<String, Int> = mapOf(
+        "https://news.ycombinator.com" to 6,
+        "https://example.com" to 3
+    ),
+    val bookmarkClickCounts: Map<String, Int> = mapOf(
+        "https://en.m.wikipedia.org" to 4,
+        "https://httpbin.org/html" to 2
+    ),
+    val siteTitles: Map<String, String> = mapOf(
+        "https://news.ycombinator.com" to "Hacker News",
+        "https://example.com" to "Example.com",
+        "https://en.m.wikipedia.org" to "Wikipedia",
+        "https://httpbin.org/html" to "HTTPBin HTML"
+    ),
     val history: List<HistoryItem> = listOf(
         HistoryItem(1L, "Home", BrowserTab.URL_HOME, "Just now")
     ),
@@ -93,6 +112,64 @@ data class BrowserUiState(
 
     val isCurrentPageBookmarked: Boolean
         get() = bookmarks.any { it.url.equals(activeTab.url, ignoreCase = true) }
+
+    val homeShortcuts: List<HomeShortcut>
+        get() {
+            val pinnedUrls = pinnedShortcuts.map { it.url.lowercase(Locale.US) }.toSet()
+            val excludedInternal = setOf(
+                BrowserTab.URL_HOME.lowercase(Locale.US),
+                BrowserTab.URL_BOOKMARKS.lowercase(Locale.US),
+                BrowserTab.URL_HISTORY.lowercase(Locale.US),
+                BrowserTab.URL_SETTINGS.lowercase(Locale.US)
+            )
+            val dismissedLower = dismissedAutoShortcutUrls.map { it.lowercase(Locale.US) }.toSet()
+
+            val autoVisited = siteVisitCounts.entries
+                .sortedByDescending { it.value }
+                .filter { (url, _) ->
+                    val lower = url.lowercase(Locale.US)
+                    lower !in pinnedUrls && lower !in excludedInternal && lower !in dismissedLower
+                }
+                .take(4)
+                .map { (url, visits) ->
+                    val title = siteTitles[url]
+                        ?: bookmarks.find { it.url.equals(url, ignoreCase = true) }?.title
+                        ?: url.removePrefix("https://").removePrefix("http://").take(24)
+                    HomeShortcut(
+                        id = "auto_visit_${url.hashCode()}",
+                        title = title,
+                        url = url,
+                        isPinned = false,
+                        source = ShortcutSource.MOST_VISITED,
+                        count = visits
+                    )
+                }
+
+            val usedUrls = pinnedUrls + autoVisited.map { it.url.lowercase(Locale.US) }.toSet()
+
+            val autoBookmarks = bookmarkClickCounts.entries
+                .sortedByDescending { it.value }
+                .filter { (url, _) ->
+                    val lower = url.lowercase(Locale.US)
+                    lower !in usedUrls && lower !in excludedInternal && lower !in dismissedLower
+                }
+                .take(4)
+                .map { (url, clicks) ->
+                    val title = bookmarks.find { it.url.equals(url, ignoreCase = true) }?.title
+                        ?: siteTitles[url]
+                        ?: url.removePrefix("https://").removePrefix("http://").take(24)
+                    HomeShortcut(
+                        id = "auto_bm_${url.hashCode()}",
+                        title = title,
+                        url = url,
+                        isPinned = false,
+                        source = ShortcutSource.TOP_BOOKMARK,
+                        count = clicks
+                    )
+                }
+
+            return (pinnedShortcuts + autoVisited + autoBookmarks).take(12)
+        }
 }
 
 class BrowserDevToolsViewModel : ViewModel() {
@@ -178,8 +255,19 @@ class BrowserDevToolsViewModel : ViewModel() {
 
     private fun recordHistoryEntry(title: String, url: String) {
         _uiState.update { state ->
-            if (state.history.firstOrNull()?.url == url) {
-                state
+            val isTrackableSite = !url.startsWith("devbrowser:", ignoreCase = true) || url.equals(BrowserTab.URL_TEST, ignoreCase = true)
+            val updatedVisits = if (isTrackableSite) {
+                state.siteVisitCounts + (url to ((state.siteVisitCounts[url] ?: 0) + 1))
+            } else {
+                state.siteVisitCounts
+            }
+            val updatedTitles = if (isTrackableSite && title.isNotBlank() && title != url) {
+                state.siteTitles + (url to title)
+            } else {
+                state.siteTitles
+            }
+            val updatedHistory = if (state.history.firstOrNull()?.url == url) {
+                state.history
             } else {
                 val entry = HistoryItem(
                     id = historyIdGenerator.getAndIncrement(),
@@ -187,8 +275,13 @@ class BrowserDevToolsViewModel : ViewModel() {
                     url = url,
                     timestamp = SimpleDateFormat("HH:mm", Locale.US).format(Date())
                 )
-                state.copy(history = (listOf(entry) + state.history).take(100))
+                (listOf(entry) + state.history).take(100)
             }
+            state.copy(
+                history = updatedHistory,
+                siteVisitCounts = updatedVisits,
+                siteTitles = updatedTitles
+            )
         }
     }
 
@@ -297,8 +390,7 @@ class BrowserDevToolsViewModel : ViewModel() {
             trimmed.startsWith("https://") || trimmed.startsWith("http://") -> trimmed
             trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
             else -> {
-                val template = _uiState.value.searchEngine.queryTemplate
-                String.format(Locale.US, template, java.net.URLEncoder.encode(trimmed, "UTF-8"))
+                _uiState.value.searchEngine.formatSearchUrl(trimmed)
             }
         }
     }
@@ -456,8 +548,49 @@ class BrowserDevToolsViewModel : ViewModel() {
         syncWebViewThemePreference()
     }
 
-    fun setSearchEngine(engine: SearchEngineOption) {
+    fun setSearchEngine(engine: SearchEngineItem) {
         _uiState.update { it.copy(searchEngine = engine) }
+    }
+
+    fun addCustomSearchEngine(name: String, rawQueryUrl: String) {
+        val cleanName = name.trim()
+        val rawTemplate = rawQueryUrl.trim()
+        if (cleanName.isEmpty() || rawTemplate.isEmpty()) return
+        val normalizedUrl = when {
+            rawTemplate.startsWith("https://") || rawTemplate.startsWith("http://") -> rawTemplate
+            else -> "https://$rawTemplate"
+        }
+        val finalTemplate = if (normalizedUrl.contains("%s")) {
+            normalizedUrl
+        } else if (normalizedUrl.contains("?")) {
+            "$normalizedUrl%s"
+        } else {
+            "${normalizedUrl.trimEnd('/')}/search?q=%s"
+        }
+        val customEngine = SearchEngineItem(
+            id = "custom_${System.currentTimeMillis()}",
+            displayName = cleanName,
+            queryTemplate = finalTemplate,
+            isCustom = true
+        )
+        _uiState.update { state ->
+            state.copy(
+                searchEngines = state.searchEngines + customEngine,
+                searchEngine = customEngine
+            )
+        }
+    }
+
+    fun removeCustomSearchEngine(engineId: String) {
+        _uiState.update { state ->
+            val updated = state.searchEngines.filterNot { it.id == engineId && it.isCustom }
+            val active = if (state.searchEngine.id == engineId) {
+                updated.firstOrNull() ?: SearchEngineItem.DUCKDUCKGO
+            } else {
+                state.searchEngine
+            }
+            state.copy(searchEngines = updated, searchEngine = active)
+        }
     }
 
     fun setJavaScriptEnabled(enabled: Boolean) {
@@ -537,6 +670,77 @@ class BrowserDevToolsViewModel : ViewModel() {
     fun removeBookmark(url: String) {
         _uiState.update { state ->
             state.copy(bookmarks = state.bookmarks.filterNot { it.url == url })
+        }
+    }
+
+    fun openBookmark(bookmark: QuickBookmark) {
+        _uiState.update { state ->
+            val currentClicks = state.bookmarkClickCounts[bookmark.url] ?: 0
+            state.copy(
+                bookmarkClickCounts = state.bookmarkClickCounts + (bookmark.url to (currentClicks + 1)),
+                siteTitles = state.siteTitles + (bookmark.url to bookmark.title)
+            )
+        }
+        navigateToInput(bookmark.url)
+    }
+
+    // Home Page Shortcuts Operations (Separate from Bookmarks)
+    fun pinShortcut(shortcut: HomeShortcut) {
+        _uiState.update { state ->
+            val alreadyPinned = state.pinnedShortcuts.any { it.url.equals(shortcut.url, ignoreCase = true) }
+            if (alreadyPinned) {
+                state
+            } else {
+                val pinned = shortcut.copy(
+                    id = "pinned_${System.currentTimeMillis()}",
+                    isPinned = true,
+                    source = ShortcutSource.PINNED
+                )
+                state.copy(
+                    pinnedShortcuts = state.pinnedShortcuts + pinned,
+                    dismissedAutoShortcutUrls = state.dismissedAutoShortcutUrls - shortcut.url
+                )
+            }
+        }
+    }
+
+    fun addCustomShortcut(title: String, rawUrl: String) {
+        val cleanTitle = title.trim()
+        val cleanUrl = rawUrl.trim()
+        if (cleanTitle.isEmpty() || cleanUrl.isEmpty()) return
+        val finalUrl = resolveInputToUrl(cleanUrl)
+        _uiState.update { state ->
+            val filtered = state.pinnedShortcuts.filterNot { it.url.equals(finalUrl, ignoreCase = true) }
+            val newShortcut = HomeShortcut(
+                id = "pinned_${System.currentTimeMillis()}",
+                title = cleanTitle,
+                url = finalUrl,
+                isPinned = true,
+                source = ShortcutSource.PINNED,
+                count = 1
+            )
+            state.copy(
+                pinnedShortcuts = filtered + newShortcut,
+                dismissedAutoShortcutUrls = state.dismissedAutoShortcutUrls - finalUrl,
+                siteTitles = state.siteTitles + (finalUrl to cleanTitle)
+            )
+        }
+    }
+
+    fun unpinShortcut(shortcut: HomeShortcut) {
+        _uiState.update { state ->
+            state.copy(
+                pinnedShortcuts = state.pinnedShortcuts.filterNot { it.url.equals(shortcut.url, ignoreCase = true) }
+            )
+        }
+    }
+
+    fun removeShortcut(shortcut: HomeShortcut) {
+        _uiState.update { state ->
+            state.copy(
+                pinnedShortcuts = state.pinnedShortcuts.filterNot { it.url.equals(shortcut.url, ignoreCase = true) },
+                dismissedAutoShortcutUrls = state.dismissedAutoShortcutUrls + shortcut.url
+            )
         }
     }
 
@@ -851,18 +1055,79 @@ class BrowserDevToolsViewModel : ViewModel() {
     }
 
     fun applyInlineStyleToSelected(nodePath: String, newStyleText: String) {
+        _uiState.update { state ->
+            val updatedNodes = state.domNodes.map {
+                if (it.path == nodePath) it.copy(inlineStyle = newStyleText) else it
+            }
+            val updatedSelected = if (state.selectedDomNode?.path == nodePath) {
+                state.selectedDomNode.copy(inlineStyle = newStyleText)
+            } else state.selectedDomNode
+            state.copy(domNodes = updatedNodes, selectedDomNode = updatedSelected)
+        }
         val escapedPath = JSONObject.quote(nodePath)
         val escapedStyle = JSONObject.quote(newStyleText)
         runJs("if(window.__devScopeApplyInlineStyle) window.__devScopeApplyInlineStyle($escapedPath, $escapedStyle);")
     }
 
+    fun hideDomNode(nodePath: String) {
+        _uiState.update { state ->
+            fun appendHideStyle(existing: String): String {
+                val base = existing.trim().trimEnd(';')
+                return if (base.isEmpty()) {
+                    "display: none !important;"
+                } else {
+                    "$base; display: none !important;"
+                }
+            }
+            val updatedNodes = state.domNodes.map {
+                if (it.path == nodePath) {
+                    it.copy(
+                        inlineStyle = appendHideStyle(it.inlineStyle),
+                        computedStyles = it.computedStyles + ("display" to "none")
+                    )
+                } else it
+            }
+            val updatedSelected = if (state.selectedDomNode?.path == nodePath) {
+                state.selectedDomNode.copy(
+                    inlineStyle = appendHideStyle(state.selectedDomNode.inlineStyle),
+                    computedStyles = state.selectedDomNode.computedStyles + ("display" to "none")
+                )
+            } else state.selectedDomNode
+            state.copy(domNodes = updatedNodes, selectedDomNode = updatedSelected)
+        }
+        val escapedPath = JSONObject.quote(nodePath)
+        runJs("if(window.__devScopeHideElement) window.__devScopeHideElement($escapedPath);")
+    }
+
     fun editDomNodeText(nodePath: String, newText: String) {
+        _uiState.update { state ->
+            val updatedNodes = state.domNodes.map {
+                if (it.path == nodePath) it.copy(textPreview = newText) else it
+            }
+            val updatedSelected = if (state.selectedDomNode?.path == nodePath) {
+                state.selectedDomNode.copy(textPreview = newText)
+            } else state.selectedDomNode
+            state.copy(domNodes = updatedNodes, selectedDomNode = updatedSelected)
+        }
         val escapedPath = JSONObject.quote(nodePath)
         val escapedText = JSONObject.quote(newText)
         runJs("if(window.__devScopeEditNodeText) window.__devScopeEditNodeText($escapedPath, $escapedText);")
     }
 
     fun setDomNodeAttribute(nodePath: String, attrName: String, attrValue: String) {
+        _uiState.update { state ->
+            val updatedNodes = state.domNodes.map {
+                if (it.path == nodePath) {
+                    val nextAttrs = if (attrValue.isEmpty()) it.attributes - attrName else it.attributes + (attrName to attrValue)
+                    it.copy(attributes = nextAttrs)
+                } else it
+            }
+            val updatedSelected = if (state.selectedDomNode?.path == nodePath) {
+                val nextAttrs = if (attrValue.isEmpty()) state.selectedDomNode.attributes - attrName else state.selectedDomNode.attributes + (attrName to attrValue)
+                state.selectedDomNode.copy(attributes = nextAttrs)
+            } else state.selectedDomNode
+            state.copy(domNodes = updatedNodes, selectedDomNode = updatedSelected)
+        }
         val escapedPath = JSONObject.quote(nodePath)
         val escapedName = JSONObject.quote(attrName)
         val escapedVal = JSONObject.quote(attrValue)

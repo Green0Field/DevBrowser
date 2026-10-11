@@ -1,10 +1,31 @@
 package com.example.devtools
 
 import com.example.model.BrowserTab
+import com.example.model.HomeShortcut
 import com.example.model.JsSnippet
 import com.example.model.QuickBookmark
+import com.example.model.ShortcutSource
 
 object DevToolsScripts {
+
+    val DEFAULT_PINNED_SHORTCUTS = listOf(
+        HomeShortcut(
+            id = "sc_test",
+            title = "DevTools Test",
+            url = BrowserTab.URL_TEST,
+            isPinned = true,
+            source = ShortcutSource.PINNED,
+            count = 5
+        ),
+        HomeShortcut(
+            id = "sc_mdn",
+            title = "MDN Web Docs",
+            url = "https://developer.mozilla.org",
+            isPinned = true,
+            source = ShortcutSource.PINNED,
+            count = 4
+        )
+    )
 
     val DEFAULT_BOOKMARKS = listOf(
         QuickBookmark("DevBrowser Test Page", BrowserTab.URL_TEST, "Internal"),
@@ -125,30 +146,11 @@ object DevToolsScripts {
               line-height: 1.5;
               transition: background-color 0.2s ease, color 0.2s ease;
             }
-            header.top-nav {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              padding-bottom: 14px;
-              margin-bottom: 18px;
-              border-bottom: 1px solid rgba(148, 163, 184, 0.22);
-            }
-            .brand {
-              font-weight: 700;
-              font-size: 16px;
-              color: var(--accent);
-            }
-            nav.nav-links a {
-              color: var(--muted);
-              text-decoration: none;
-              font-size: 13px;
-              margin-left: 14px;
-            }
             section.card {
               background: var(--surface);
               border: 1px solid rgba(148, 163, 184, 0.24);
-              border-radius: 12px;
-              padding: 16px;
+              border-radius: 16px;
+              padding: 18px;
               margin-bottom: 14px;
               transition: background-color 0.2s ease, border-color 0.2s ease;
             }
@@ -170,8 +172,8 @@ object DevToolsScripts {
               background: var(--accent);
               color: #fff;
               border: none;
-              border-radius: 8px;
-              padding: 8px 12px;
+              border-radius: 12px;
+              padding: 9px 14px;
               font-size: 12px;
               font-weight: 600;
               cursor: pointer;
@@ -186,22 +188,13 @@ object DevToolsScripts {
               color: var(--status-text);
               background: var(--status-bg);
               padding: 8px 10px;
-              border-radius: 6px;
+              border-radius: 8px;
             }
           </style>
         </head>
         <body>
-          <header id="site-header" class="top-nav">
-            <span class="brand">devbrowser:test</span>
-            <nav class="nav-links">
-              <a href="https://example.com">Example.com</a>
-              <a href="https://news.ycombinator.com">Hacker News</a>
-              <a href="https://developer.mozilla.org">MDN</a>
-            </nav>
-          </header>
-
           <main id="app-main">
-            <section id="customizable-box" class="card" style="padding: 16px; border-radius: 12px;">
+            <section id="customizable-box" class="card" style="padding: 18px; border-radius: 16px;">
               <h1 id="hero-heading">DevBrowser Inspection Target</h1>
               <p id="hero-description">
                 Use the Inspect tool or Elements panel below to inspect and modify this page, or test network and console events.
@@ -777,6 +770,14 @@ object DevToolsScripts {
             var el = document.querySelector('[data-devscope-id="' + nodeId + '"]');
             if (!el) return;
             el.setAttribute('style', styleText);
+            window.__devScopeHighlightNode(nodeId, false);
+            window.__devScopeRefreshDom('');
+          };
+
+          window.__devScopeHideElement = function(nodeId) {
+            var el = document.querySelector('[data-devscope-id="' + nodeId + '"]');
+            if (!el) return;
+            el.style.setProperty('display', 'none', 'important');
             window.__devScopeHighlightNode(nodeId, false);
             window.__devScopeRefreshDom('');
           };

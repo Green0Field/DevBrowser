@@ -252,6 +252,7 @@ fun BrowserDevToolsScreen(
                                 onDomSearchChange = viewModel::updateDomSearchQuery,
                                 onSelectDomNode = viewModel::selectDomNodeFromTree,
                                 onApplyInlineStyle = viewModel::applyInlineStyleToSelected,
+                                onHideNode = viewModel::hideDomNode,
                                 onEditNodeText = viewModel::editDomNodeText,
                                 onSetAttribute = viewModel::setDomNodeAttribute,
                                 onRemoveNode = viewModel::removeDomNode,
@@ -307,6 +308,7 @@ fun BrowserDevToolsScreen(
                                     onDomSearchChange = viewModel::updateDomSearchQuery,
                                     onSelectDomNode = viewModel::selectDomNodeFromTree,
                                     onApplyInlineStyle = viewModel::applyInlineStyleToSelected,
+                                    onHideNode = viewModel::hideDomNode,
                                     onEditNodeText = viewModel::editDomNodeText,
                                     onSetAttribute = viewModel::setDomNodeAttribute,
                                     onRemoveNode = viewModel::removeDomNode,
@@ -372,14 +374,18 @@ private fun BrowserViewportContainer(
     ) {
         when (activeUrl) {
             BrowserTab.URL_HOME -> DevBrowserHomePage(
-                bookmarks = uiState.bookmarks,
+                shortcuts = uiState.homeShortcuts,
                 searchEngine = uiState.searchEngine,
                 onNavigate = { viewModel.navigateToInput(it) },
-                onOpenDevTools = viewModel::toggleDevTools
+                onPinShortcut = viewModel::pinShortcut,
+                onAddShortcut = viewModel::addCustomShortcut,
+                onUnpinShortcut = viewModel::unpinShortcut,
+                onRemoveShortcut = viewModel::removeShortcut
             )
 
             BrowserTab.URL_BOOKMARKS -> DevBrowserBookmarksPage(
                 bookmarks = uiState.bookmarks,
+                onOpenBookmark = viewModel::openBookmark,
                 onSelectUrl = { viewModel.navigateToInput(it) },
                 onAddBookmark = viewModel::addCustomBookmark,
                 onRemoveBookmark = viewModel::removeBookmark
@@ -396,12 +402,15 @@ private fun BrowserViewportContainer(
                 isDarkTheme = uiState.isDarkTheme,
                 isNeonMode = uiState.isNeonMode,
                 accentColor = uiState.accentColor,
+                searchEngines = uiState.searchEngines,
                 searchEngine = uiState.searchEngine,
                 javaScriptEnabled = uiState.javaScriptEnabled,
                 onSetDarkTheme = viewModel::setDarkTheme,
                 onSetNeonMode = viewModel::setNeonMode,
                 onSelectAccentColor = viewModel::setThemeAccentColor,
                 onSelectSearchEngine = viewModel::setSearchEngine,
+                onAddCustomSearchEngine = viewModel::addCustomSearchEngine,
+                onRemoveCustomSearchEngine = viewModel::removeCustomSearchEngine,
                 onToggleJavaScript = viewModel::setJavaScriptEnabled,
                 onClearSiteData = viewModel::clearAllBrowserSiteData
             )
