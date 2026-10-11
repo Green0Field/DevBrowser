@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">DevBrowser</string>
+    <string name="url_bar_placeholder">Search or enter URL, or try a sandbox preset…</string>
+    <string name="devtools_elements">Elements</string>
+    <string name="devtools_console">Console</string>
+    <string name="devtools_network">Network</string>
+    <string name="devtools_application">Application</string>
+    <string name="devtools_performance">Performance</string>
+    <string name="devtools_sources">Sources</string>
+    <string name="console_input_hint">Evaluate JavaScript in page context (e.g. document.title)…</string>
+    <string name="clear_logs">Clear</string>
+    <string name="element_picker">Inspect Element on Page</string>
+    <string name="device_mode">Toggle Device Toolbar</string>
+    <string name="toggle_devtools">Toggle Chrome DevTools</string>
+</resources>
