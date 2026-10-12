@@ -67,33 +67,35 @@ jobs:
           SHORT_DESC="${{ steps.check_commit.outputs.short_desc }}"
           git shortlog HEAD < /dev/null > release_shortlog.txt
 
-          # Create release description with short description header if present
-          if [ -n "$SHORT_DESC" ]; then
-            {
+          # Create release description with the exact requested layout
+          {
+            echo "## $VERSION"
+            if [ -n "$SHORT_DESC" ]; then
               echo "**Short Description:** $SHORT_DESC"
-              echo "---"
-              cat release_shortlog.txt
-            } > release_notes.txt
-          else
-            cat release_shortlog.txt > release_notes.txt
-          fi
+            fi
+            echo '```'
+            cat release_shortlog.txt
+            echo '```'
+          } > release_notes.txt
 
           # Ensure CHANGELOG.md exists
           if [ ! -f CHANGELOG.md ]; then
             echo "# Changelog" > CHANGELOG.md
             echo "### This is the changelog, auto updated by Github Actions." >> CHANGELOG.md
             echo "---" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
           fi
 
-          # Append entry under version header to CHANGELOG.md
+          # Append entry to CHANGELOG.md with the exact requested layout
           {
             echo ""
             echo "## $VERSION"
             if [ -n "$SHORT_DESC" ]; then
               echo "**Short Description:** $SHORT_DESC"
-              echo "---"
             fi
+            echo '```'
             cat release_shortlog.txt
+            echo '```'
           } >> CHANGELOG.md
 
           # Commit and push updated CHANGELOG.md back to the repository
@@ -186,7 +188,7 @@ jobs:
         with:
           name: ${{ steps.check_commit.outputs.version }}
           tag_name: ${{ steps.check_commit.outputs.tag_name }}
-          body_path: release_shortlog.txt
+          body_path: release_notes.txt
           prerelease: ${{ steps.check_commit.outputs.is_prerelease == 'true' }}
           files: release-apks/*.apk
         env:
