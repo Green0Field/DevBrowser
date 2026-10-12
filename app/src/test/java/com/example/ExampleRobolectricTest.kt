@@ -130,4 +130,31 @@ class ExampleRobolectricTest {
         assertTrue(updatedNode.inlineStyle.contains("display: none !important;"))
         assertEquals("none", updatedNode.computedStyles["display"])
     }
+
+    @Test
+    fun `theme preferences persist across closing and reopening app`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("devbrowser_user_preferences", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+
+        // First session: user changes Dark Mode -> Light Mode, Neon Mode -> Off, Color -> GREEN
+        val firstSessionVm = BrowserDevToolsViewModel(context)
+        assertTrue(firstSessionVm.uiState.value.isDarkTheme)
+        assertTrue(firstSessionVm.uiState.value.isNeonMode)
+        assertEquals(ThemeAccentColor.BLUE, firstSessionVm.uiState.value.accentColor)
+
+        firstSessionVm.setDarkTheme(false)
+        firstSessionVm.setNeonMode(false)
+        firstSessionVm.setThemeAccentColor(ThemeAccentColor.GREEN)
+        firstSessionVm.addCustomSearchEngine("Kagi", "https://kagi.com/search?q=%s")
+
+        // Simulate closing and reopening the app with a brand new ViewModel instance
+        val reopenedSessionVm = BrowserDevToolsViewModel(context)
+        assertFalse(reopenedSessionVm.uiState.value.isDarkTheme)
+        assertFalse(reopenedSessionVm.uiState.value.isNeonMode)
+        assertEquals(ThemeAccentColor.GREEN, reopenedSessionVm.uiState.value.accentColor)
+        assertEquals("Kagi", reopenedSessionVm.uiState.value.searchEngine.displayName)
+    }
 }

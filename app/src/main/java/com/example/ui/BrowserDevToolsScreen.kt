@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
@@ -35,7 +36,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.devtools.DevScopeJsBridge
-import com.example.devtools.DevToolsScripts
 import com.example.model.BrowserTab
 import com.example.ui.components.BrowserTopBar
 import com.example.ui.components.DevToolsDock
@@ -63,10 +65,16 @@ import java.util.Locale
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun BrowserDevToolsScreen(
-    viewModel: BrowserDevToolsViewModel = viewModel()
+    viewModel: BrowserDevToolsViewModel = viewModel(
+        factory = BrowserDevToolsViewModel.provideFactory(LocalContext.current)
+    )
 ) {
-    val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    remember(viewModel, context) {
+        viewModel.attachPreferencesIfNeeded(context)
+        true
+    }
+    val uiState by viewModel.uiState.collectAsState()
 
     BackHandler(enabled = uiState.activeTab.canGoBack) {
         viewModel.goBack()
@@ -84,95 +92,95 @@ fun BrowserDevToolsScreen(
         )
     }
 
-    val webViewInstance = remember(context) {
-        WebView(context).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            WebView.setWebContentsDebuggingEnabled(true)
-            CookieManager.getInstance().setAcceptCookie(true)
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                loadsImagesAutomatically = true
-                useWideViewPort = true
-                loadWithOverviewMode = true
-                builtInZoomControls = true
-                displayZoomControls = false
-                setSupportZoom(true)
-                userAgentString = uiState.activeTab.devicePreset.userAgent
-            }
-            addJavascriptInterface(jsBridge, "DevScopeBridge")
+    var webViewHolder by remember { mutableStateOf<WebView?>(null) }
 
-            webViewClient = object : WebViewClient() {
-                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                    super.onPageStarted(view, url, favicon)
-                    if (url != null) {
-                        viewModel.onPageStarted(url)
+    val getOrCreateWebView: () -> WebView = remember(context, jsBridge) {
+        {
+            webViewHolder ?: WebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                // Use software layer rendering so virtualized/emulator environments without
+                // /dev/dri/renderD* DRM rendernodes do not emit MESA rendernode errors.
+                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                CookieManager.getInstance().setAcceptCookie(true)
+                settings.apply {
+                    javaScriptEnabled = uiState.javaScriptEnabled
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    loadsImagesAutomatically = true
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    setSupportZoom(true)
+                    userAgentString = uiState.activeTab.devicePreset.userAgent
+                }
+                addJavascriptInterface(jsBridge, "DevScopeBridge")
+
+                webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        if (url != null) {
+                            viewModel.onPageStarted(url)
+                        }
+                    }
+
+                    override fun onLoadResource(view: WebView?, url: String?) {
+                        super.onLoadResource(view, url)
+                        if (url != null) {
+                            viewModel.onWebViewResourceLoaded(url)
+                        }
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        if (view != null && url != null) {
+                            viewModel.onPageFinished(
+                                rawUrl = url,
+                                title = view.title,
+                                canGoBack = view.canGoBack(),
+                                canGoForward = view.canGoForward()
+                            )
+                        }
+                    }
+
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        val reqUrl = request?.url?.toString() ?: return false
+                        if (reqUrl.startsWith("devbrowser:", ignoreCase = true)) {
+                            viewModel.navigateToInput(reqUrl)
+                            return true
+                        }
+                        return false
                     }
                 }
 
-                override fun onLoadResource(view: WebView?, url: String?) {
-                    super.onLoadResource(view, url)
-                    if (url != null) {
-                        viewModel.onWebViewResourceLoaded(url)
+                webChromeClient = object : WebChromeClient() {
+                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                        super.onProgressChanged(view, newProgress)
+                        viewModel.onPageProgressChanged(newProgress)
                     }
-                }
 
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                    if (view != null && url != null) {
-                        viewModel.onPageFinished(
-                            rawUrl = url,
-                            title = view.title,
-                            canGoBack = view.canGoBack(),
-                            canGoForward = view.canGoForward()
-                        )
-                    }
-                }
-
-                override fun shouldOverrideUrlLoading(
-                    view: WebView?,
-                    request: WebResourceRequest?
-                ): Boolean {
-                    val reqUrl = request?.url?.toString() ?: return false
-                    if (reqUrl.startsWith("devbrowser:", ignoreCase = true)) {
-                        viewModel.navigateToInput(reqUrl)
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                         return true
                     }
-                    return false
                 }
+            }.also { created ->
+                webViewHolder = created
+                viewModel.attachWebView(created)
             }
-
-            webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                    super.onProgressChanged(view, newProgress)
-                    viewModel.onPageProgressChanged(newProgress)
-                }
-
-                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                    return true
-                }
-            }
-
-            // Preload devbrowser:test HTML in the background so DevTools is always ready
-            loadDataWithBaseURL(
-                BrowserTab.INTERNAL_TEST_BASE_URL,
-                DevToolsScripts.PLAYGROUND_HTML,
-                "text/html",
-                "UTF-8",
-                null
-            )
         }
     }
 
-    DisposableEffect(webViewInstance) {
-        viewModel.attachWebView(webViewInstance)
+    DisposableEffect(Unit) {
         onDispose {
             viewModel.attachWebView(null)
-            webViewInstance.destroy()
+            webViewHolder?.destroy()
+            webViewHolder = null
         }
     }
 
@@ -232,7 +240,7 @@ fun BrowserDevToolsScreen(
                     if (isWideScreen && uiState.isDevToolsOpen) {
                         Row(modifier = Modifier.fillMaxSize()) {
                             BrowserViewportContainer(
-                                webView = webViewInstance,
+                                getOrCreateWebView = getOrCreateWebView,
                                 uiState = uiState,
                                 viewModel = viewModel,
                                 modifier = Modifier
@@ -286,7 +294,7 @@ fun BrowserDevToolsScreen(
                             val webViewFraction = (1f - dockFraction).coerceIn(0.20f, 1f)
 
                             BrowserViewportContainer(
-                                webView = webViewInstance,
+                                getOrCreateWebView = getOrCreateWebView,
                                 uiState = uiState,
                                 viewModel = viewModel,
                                 modifier = Modifier
@@ -358,7 +366,7 @@ fun BrowserDevToolsScreen(
 
 @Composable
 private fun BrowserViewportContainer(
-    webView: WebView,
+    getOrCreateWebView: () -> WebView,
     uiState: BrowserUiState,
     viewModel: BrowserDevToolsViewModel,
     modifier: Modifier = Modifier
@@ -455,14 +463,22 @@ private fun BrowserViewportContainer(
                                 .border(2.dp, cs.outline, RoundedCornerShape(12.dp))
                         ) {
                             AndroidView(
-                                factory = { webView },
+                                factory = {
+                                    getOrCreateWebView().apply {
+                                        (parent as? ViewGroup)?.removeView(this)
+                                    }
+                                },
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
                     }
                 } else {
                     AndroidView(
-                        factory = { webView },
+                        factory = {
+                            getOrCreateWebView().apply {
+                                (parent as? ViewGroup)?.removeView(this)
+                            }
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 }

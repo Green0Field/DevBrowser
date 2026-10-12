@@ -1,12 +1,95 @@
 package com.example.devtools
 
+import com.example.model.BoxModelMetrics
 import com.example.model.BrowserTab
+import com.example.model.DomNodeItem
 import com.example.model.HomeShortcut
 import com.example.model.JsSnippet
 import com.example.model.QuickBookmark
 import com.example.model.ShortcutSource
+import com.example.model.StorageEntry
+import com.example.model.StorageType
 
 object DevToolsScripts {
+
+    val DEFAULT_DOM_NODES = listOf(
+        DomNodeItem(
+            path = "n1",
+            cssSelector = "html",
+            tag = "html",
+            attributes = mapOf("lang" to "en"),
+            childCount = 2,
+            depth = 0
+        ),
+        DomNodeItem(
+            path = "n2",
+            cssSelector = "html > body",
+            tag = "body",
+            childCount = 1,
+            depth = 1
+        ),
+        DomNodeItem(
+            path = "n3",
+            cssSelector = "body > main#app-main",
+            tag = "main",
+            idAttr = "app-main",
+            childCount = 1,
+            depth = 2
+        ),
+        DomNodeItem(
+            path = "n4",
+            cssSelector = "main#app-main > section#customizable-box.card",
+            tag = "section",
+            idAttr = "customizable-box",
+            classAttr = "card",
+            inlineStyle = "padding: 18px; border-radius: 16px;",
+            childCount = 4,
+            depth = 3,
+            computedStyles = mapOf(
+                "display" to "block",
+                "padding" to "18px",
+                "border-radius" to "16px",
+                "width" to "360px",
+                "height" to "180px"
+            ),
+            boxModel = BoxModelMetrics(
+                width = 360,
+                height = 180,
+                marginBottom = 14,
+                borderTop = 1,
+                borderRight = 1,
+                borderBottom = 1,
+                borderLeft = 1,
+                paddingTop = 18,
+                paddingRight = 18,
+                paddingBottom = 18,
+                paddingLeft = 18
+            )
+        ),
+        DomNodeItem(
+            path = "n5",
+            cssSelector = "section#customizable-box > h1#hero-heading",
+            tag = "h1",
+            idAttr = "hero-heading",
+            textPreview = "DevBrowser Inspection Target",
+            depth = 4
+        ),
+        DomNodeItem(
+            path = "n6",
+            cssSelector = "section#customizable-box > p#hero-description",
+            tag = "p",
+            idAttr = "hero-description",
+            textPreview = "Use the Inspect tool or Elements panel below to inspect and modify this page.",
+            depth = 4
+        )
+    )
+
+    val DEFAULT_STORAGE_ENTRIES = listOf(
+        StorageEntry("devbrowser_theme", "dark-blue", StorageType.LOCAL_STORAGE),
+        StorageEntry("test_page_url", "devbrowser:test", StorageType.LOCAL_STORAGE),
+        StorageEntry("session_id", "s_devbrowser01", StorageType.SESSION_STORAGE),
+        StorageEntry("devbrowser_mode", "inspector", StorageType.COOKIES)
+    )
 
     val DEFAULT_PINNED_SHORTCUTS = listOf(
         HomeShortcut(

@@ -1,12 +1,15 @@
 package com.example.viewmodel
 
+import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.data.BrowserPreferencesStore
 import com.example.devtools.DevToolsScripts
 import com.example.model.BrowserTab
 import com.example.model.ConsoleLogEntry
@@ -56,8 +59,8 @@ data class BrowserUiState(
     val searchEngines: List<SearchEngineItem> = SearchEngineItem.DEFAULT_ENGINES,
     val searchEngine: SearchEngineItem = SearchEngineItem.DUCKDUCKGO,
     val javaScriptEnabled: Boolean = true,
-    val domNodes: List<DomNodeItem> = emptyList(),
-    val selectedDomNode: DomNodeItem? = null,
+    val domNodes: List<DomNodeItem> = DevToolsScripts.DEFAULT_DOM_NODES,
+    val selectedDomNode: DomNodeItem? = DevToolsScripts.DEFAULT_DOM_NODES.find { it.idAttr == "customizable-box" },
     val domSearchQuery: String = "",
     val consoleLogs: List<ConsoleLogEntry> = emptyList(),
     val consoleLevelFilter: ConsoleLogLevel? = null,
@@ -74,10 +77,10 @@ data class BrowserUiState(
     val selectedNetworkRequest: NetworkRequestEntry? = null,
     val preserveNetworkLog: Boolean = false,
     val isOfflineThrottled: Boolean = false,
-    val storageEntries: List<StorageEntry> = emptyList(),
+    val storageEntries: List<StorageEntry> = DevToolsScripts.DEFAULT_STORAGE_ENTRIES,
     val selectedStorageType: StorageType = StorageType.LOCAL_STORAGE,
     val performanceMetrics: PerformanceMetrics = PerformanceMetrics(),
-    val pageSourceHtml: String = "",
+    val pageSourceHtml: String = DevToolsScripts.PLAYGROUND_HTML,
     val sourceSearchQuery: String = "",
     val bookmarks: List<QuickBookmark> = DevToolsScripts.DEFAULT_BOOKMARKS,
     val pinnedShortcuts: List<HomeShortcut> = DevToolsScripts.DEFAULT_PINNED_SHORTCUTS,
@@ -172,20 +175,88 @@ data class BrowserUiState(
         }
 }
 
-class BrowserDevToolsViewModel : ViewModel() {
+class BrowserDevToolsViewModel(
+    private var preferencesStore: BrowserPreferencesStore? = null
+) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(BrowserUiState())
+    constructor(context: Context) : this(BrowserPreferencesStore(context.applicationContext))
+
+    private val _uiState = MutableStateFlow(
+        preferencesStore?.loadInitialState(BrowserUiState()) ?: BrowserUiState()
+    )
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
 
     private val logIdGenerator = AtomicLong(1L)
-    private val historyIdGenerator = AtomicLong(2L)
+    private val historyIdGenerator = AtomicLong(
+        (_uiState.value.history.maxOfOrNull { it.id } ?: 1L) + 1L
+    )
     private val pageLoadTimestampMs = AtomicLong(System.currentTimeMillis())
     private var webViewRef: WebView? = null
 
+    fun attachPreferencesIfNeeded(context: Context) {
+        if (preferencesStore == null) {
+            val store = BrowserPreferencesStore(context.applicationContext)
+            preferencesStore = store
+            _uiState.update { current -> store.loadInitialState(current) }
+            val maxHistId = _uiState.value.history.maxOfOrNull { it.id } ?: 1L
+            if (historyIdGenerator.get() <= maxHistId) {
+                historyIdGenerator.set(maxHistId + 1L)
+            }
+            syncWebViewThemePreference()
+        }
+    }
+
+    private fun persistShortcutsAndHistory() {
+        val state = _uiState.value
+        preferencesStore?.saveShortcutsState(
+            pinnedShortcuts = state.pinnedShortcuts,
+            dismissedUrls = state.dismissedAutoShortcutUrls,
+            visitCounts = state.siteVisitCounts,
+            clickCounts = state.bookmarkClickCounts,
+            siteTitles = state.siteTitles
+        )
+        preferencesStore?.saveHistory(state.history)
+    }
+
+    companion object {
+        fun provideFactory(context: Context): ViewModelProvider.Factory {
+            val appContext = context.applicationContext
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    return BrowserDevToolsViewModel(BrowserPreferencesStore(appContext)) as T
+                }
+            }
+        }
+    }
+
     fun attachWebView(webView: WebView?) {
+        val isNewAttachment = webView != null && webViewRef !== webView
         webViewRef = webView
         if (webView != null) {
             syncWebViewThemePreference()
+            if (isNewAttachment) {
+                val activeUrl = _uiState.value.activeTab.url
+                val isInternalCompose = activeUrl in listOf(
+                    BrowserTab.URL_HOME,
+                    BrowserTab.URL_BOOKMARKS,
+                    BrowserTab.URL_HISTORY,
+                    BrowserTab.URL_SETTINGS
+                )
+                if (!isInternalCompose) {
+                    if (activeUrl == BrowserTab.URL_TEST) {
+                        webView.loadDataWithBaseURL(
+                            BrowserTab.INTERNAL_TEST_BASE_URL,
+                            DevToolsScripts.PLAYGROUND_HTML,
+                            "text/html",
+                            "UTF-8",
+                            null
+                        )
+                    } else {
+                        webView.loadUrl(activeUrl)
+                    }
+                }
+            }
         }
     }
 
@@ -283,6 +354,7 @@ class BrowserDevToolsViewModel : ViewModel() {
                 siteTitles = updatedTitles
             )
         }
+        persistShortcutsAndHistory()
     }
 
     fun onPageStarted(rawUrl: String) {
@@ -535,21 +607,26 @@ class BrowserDevToolsViewModel : ViewModel() {
     // Theme & Browser Settings
     fun setDarkTheme(isDark: Boolean) {
         _uiState.update { it.copy(isDarkTheme = isDark) }
+        preferencesStore?.saveDarkTheme(isDark)
         syncWebViewThemePreference()
     }
 
     fun setNeonMode(isNeon: Boolean) {
         _uiState.update { it.copy(isNeonMode = isNeon) }
+        preferencesStore?.saveNeonMode(isNeon)
         syncWebViewThemePreference()
     }
 
     fun setThemeAccentColor(color: ThemeAccentColor) {
         _uiState.update { it.copy(accentColor = color) }
+        preferencesStore?.saveAccentColor(color)
         syncWebViewThemePreference()
     }
 
     fun setSearchEngine(engine: SearchEngineItem) {
         _uiState.update { it.copy(searchEngine = engine) }
+        val state = _uiState.value
+        preferencesStore?.saveSearchEngines(state.searchEngines, state.searchEngine)
     }
 
     fun addCustomSearchEngine(name: String, rawQueryUrl: String) {
@@ -579,6 +656,8 @@ class BrowserDevToolsViewModel : ViewModel() {
                 searchEngine = customEngine
             )
         }
+        val state = _uiState.value
+        preferencesStore?.saveSearchEngines(state.searchEngines, state.searchEngine)
     }
 
     fun removeCustomSearchEngine(engineId: String) {
@@ -591,10 +670,13 @@ class BrowserDevToolsViewModel : ViewModel() {
             }
             state.copy(searchEngines = updated, searchEngine = active)
         }
+        val state = _uiState.value
+        preferencesStore?.saveSearchEngines(state.searchEngines, state.searchEngine)
     }
 
     fun setJavaScriptEnabled(enabled: Boolean) {
         _uiState.update { it.copy(javaScriptEnabled = enabled) }
+        preferencesStore?.saveJavaScriptEnabled(enabled)
         viewModelScope.launch(Dispatchers.Main) {
             webViewRef?.settings?.javaScriptEnabled = enabled
             reloadActivePage()
@@ -657,6 +739,7 @@ class BrowserDevToolsViewModel : ViewModel() {
             }
             state.copy(bookmarks = updated)
         }
+        preferencesStore?.saveBookmarks(_uiState.value.bookmarks)
     }
 
     fun addCustomBookmark(title: String, rawUrl: String) {
@@ -665,12 +748,14 @@ class BrowserDevToolsViewModel : ViewModel() {
             val filtered = state.bookmarks.filterNot { it.url.equals(finalUrl, ignoreCase = true) }
             state.copy(bookmarks = listOf(QuickBookmark(title, finalUrl, "Saved")) + filtered)
         }
+        preferencesStore?.saveBookmarks(_uiState.value.bookmarks)
     }
 
     fun removeBookmark(url: String) {
         _uiState.update { state ->
             state.copy(bookmarks = state.bookmarks.filterNot { it.url == url })
         }
+        preferencesStore?.saveBookmarks(_uiState.value.bookmarks)
     }
 
     fun openBookmark(bookmark: QuickBookmark) {
@@ -681,6 +766,7 @@ class BrowserDevToolsViewModel : ViewModel() {
                 siteTitles = state.siteTitles + (bookmark.url to bookmark.title)
             )
         }
+        persistShortcutsAndHistory()
         navigateToInput(bookmark.url)
     }
 
@@ -702,6 +788,7 @@ class BrowserDevToolsViewModel : ViewModel() {
                 )
             }
         }
+        persistShortcutsAndHistory()
     }
 
     fun addCustomShortcut(title: String, rawUrl: String) {
@@ -725,6 +812,7 @@ class BrowserDevToolsViewModel : ViewModel() {
                 siteTitles = state.siteTitles + (finalUrl to cleanTitle)
             )
         }
+        persistShortcutsAndHistory()
     }
 
     fun unpinShortcut(shortcut: HomeShortcut) {
@@ -733,6 +821,7 @@ class BrowserDevToolsViewModel : ViewModel() {
                 pinnedShortcuts = state.pinnedShortcuts.filterNot { it.url.equals(shortcut.url, ignoreCase = true) }
             )
         }
+        persistShortcutsAndHistory()
     }
 
     fun removeShortcut(shortcut: HomeShortcut) {
@@ -742,16 +831,19 @@ class BrowserDevToolsViewModel : ViewModel() {
                 dismissedAutoShortcutUrls = state.dismissedAutoShortcutUrls + shortcut.url
             )
         }
+        persistShortcutsAndHistory()
     }
 
     fun deleteHistoryItem(id: Long) {
         _uiState.update { state ->
             state.copy(history = state.history.filterNot { it.id == id })
         }
+        persistShortcutsAndHistory()
     }
 
     fun clearBrowsingHistory() {
         _uiState.update { it.copy(history = emptyList()) }
+        persistShortcutsAndHistory()
     }
 
     fun clearAllBrowserSiteData() {
@@ -924,13 +1016,14 @@ class BrowserDevToolsViewModel : ViewModel() {
     fun onBridgeDomTreeUpdated(nodes: List<DomNodeItem>) {
         _uiState.update { state ->
             val currentSelectedPath = state.selectedDomNode?.path
-            val refreshedSelection = if (currentSelectedPath != null) {
-                nodes.find { it.path == currentSelectedPath } ?: state.selectedDomNode
+            val refreshedSelection = (if (currentSelectedPath != null) {
+                nodes.find { it.path == currentSelectedPath }
             } else {
-                nodes.find { it.idAttr == "customizable-box" }
-                    ?: nodes.find { it.tag == "body" }
-                    ?: nodes.firstOrNull()
-            }
+                null
+            }) ?: nodes.find { it.idAttr == "customizable-box" }
+                ?: nodes.find { it.tag == "body" }
+                ?: nodes.firstOrNull()
+                ?: state.selectedDomNode
             state.copy(
                 domNodes = nodes,
                 selectedDomNode = refreshedSelection
