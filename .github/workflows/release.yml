@@ -22,30 +22,38 @@ jobs:
           COMMIT_MSG=$(git log -1 --pretty=%s)
           echo "Latest commit subject: $COMMIT_MSG"
 
-          if [[ "$COMMIT_MSG" =~ ^\[Release:[[:space:]]*([^]]+)\] ]]; then
+          if [[ "$COMMIT_MSG" =~ ^\[[Rr]elease:[[:space:]]*([^]]+)\](.*)$ ]]; then
             VERSION="$(echo "${BASH_REMATCH[1]}" | xargs)"
+            RAW_DESC="${BASH_REMATCH[2]}"
+            SHORT_DESC="$(echo "$RAW_DESC" | sed -e 's/^[[:space:]]*[-:]*[[:space:]]*//' -e 's/[[:space:]]*$//')"
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
             echo "release_type=Release" >> "$GITHUB_OUTPUT"
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "short_desc=$SHORT_DESC" >> "$GITHUB_OUTPUT"
             if [[ "$VERSION" == v* ]]; then
               echo "tag_name=$VERSION" >> "$GITHUB_OUTPUT"
             else
               echo "tag_name=v$VERSION" >> "$GITHUB_OUTPUT"
             fi
             echo "Detected regular Release for version: $VERSION"
-          elif [[ "$COMMIT_MSG" =~ ^\[[Pp]re-release:[[:space:]]*([^]]+)\] ]]; then
+            echo "Short description: $SHORT_DESC"
+          elif [[ "$COMMIT_MSG" =~ ^\[[Pp]re-[Rr]elease:[[:space:]]*([^]]+)\](.*)$ ]]; then
             VERSION="$(echo "${BASH_REMATCH[1]}" | xargs)"
+            RAW_DESC="${BASH_REMATCH[2]}"
+            SHORT_DESC="$(echo "$RAW_DESC" | sed -e 's/^[[:space:]]*[-:]*[[:space:]]*//' -e 's/[[:space:]]*$//')"
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
             echo "release_type=Pre-release" >> "$GITHUB_OUTPUT"
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "short_desc=$SHORT_DESC" >> "$GITHUB_OUTPUT"
             if [[ "$VERSION" == v* ]]; then
               echo "tag_name=$VERSION" >> "$GITHUB_OUTPUT"
             else
               echo "tag_name=v$VERSION" >> "$GITHUB_OUTPUT"
             fi
             echo "Detected Pre-release for version: $VERSION"
+            echo "Short description: $SHORT_DESC"
           else
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             echo "Commit does not begin with '[Release: <version>]' or '[Pre-release: <version>]'. Skipping release."
@@ -56,17 +64,35 @@ jobs:
         if: steps.check_commit.outputs.should_release == 'true'
         run: |
           VERSION="${{ steps.check_commit.outputs.version }}"
+          SHORT_DESC="${{ steps.check_commit.outputs.short_desc }}"
           git shortlog HEAD < /dev/null > release_shortlog.txt
+
+          # Create release description with short description header if present
+          if [ -n "$SHORT_DESC" ]; then
+            {
+              echo "**Short Description:** $SHORT_DESC"
+              echo "---"
+              cat release_shortlog.txt
+            } > release_notes.txt
+          else
+            cat release_shortlog.txt > release_notes.txt
+          fi
 
           # Ensure CHANGELOG.md exists
           if [ ! -f CHANGELOG.md ]; then
             echo "# Changelog" > CHANGELOG.md
+            echo "### This is the changelog, auto updated by Github Actions." >> CHANGELOG.md
+            echo "---" >> CHANGELOG.md
           fi
 
-          # Append git shortlog output under version header to CHANGELOG.md
+          # Append entry under version header to CHANGELOG.md
           {
             echo ""
             echo "## $VERSION"
+            if [ -n "$SHORT_DESC" ]; then
+              echo "**Short Description:** $SHORT_DESC"
+              echo "---"
+            fi
             cat release_shortlog.txt
           } >> CHANGELOG.md
 
@@ -79,10 +105,10 @@ jobs:
             git push origin HEAD || true
           fi
 
-          cat release_shortlog.txt
+          cat release_notes.txt
           {
             echo "shortlog<<EOF_SHORTLOG"
-            cat release_shortlog.txt
+            cat release_notes.txt
             echo "EOF_SHORTLOG"
           } >> "$GITHUB_OUTPUT"
 
