@@ -1,0 +1,237 @@
+name: Build and Release APK
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  release-on-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit message for Release or Pre-release tag
+        id: check_commit
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          echo "Latest commit subject: $COMMIT_MSG"
+          if [[ "$COMMIT_MSG" =~ ^\[[Rr]elease:[[:space:]]*([^]]+)\](.*)$ ]]; then
+            RAW_VERSION="$(echo "${BASH_REMATCH[1]}" | xargs)"
+            VERSION_NO_V="${RAW_VERSION#v}"
+            VERSION_NO_V="${VERSION_NO_V#V}"
+            VERSION_WITH_V="v${VERSION_NO_V}"
+            RAW_DESC="${BASH_REMATCH[2]}"
+            SHORT_DESC="$(echo "$RAW_DESC" | sed -e 's/^[[:space:]]*[-:]*[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "release_type=Release" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION_NO_V" >> "$GITHUB_OUTPUT"
+            echo "version_with_v=$VERSION_WITH_V" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$VERSION_WITH_V" >> "$GITHUB_OUTPUT"
+            echo "short_desc=$SHORT_DESC" >> "$GITHUB_OUTPUT"
+            echo "Detected regular Release for version: $VERSION_NO_V (tag: $VERSION_WITH_V)"
+            echo "Short description: $SHORT_DESC"
+          elif [[ "$COMMIT_MSG" =~ ^\[[Pp]re-?[Rr]elease:[[:space:]]*([^]]+)\](.*)$ ]]; then
+            RAW_VERSION="$(echo "${BASH_REMATCH[1]}" | xargs)"
+            VERSION_NO_V="${RAW_VERSION#v}"
+            VERSION_NO_V="${VERSION_NO_V#V}"
+            VERSION_WITH_V="v${VERSION_NO_V}"
+            RAW_DESC="${BASH_REMATCH[2]}"
+            SHORT_DESC="$(echo "$RAW_DESC" | sed -e 's/^[[:space:]]*[-:]*[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "release_type=Pre-release" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION_NO_V" >> "$GITHUB_OUTPUT"
+            echo "version_with_v=$VERSION_WITH_V" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$VERSION_WITH_V" >> "$GITHUB_OUTPUT"
+            echo "short_desc=$SHORT_DESC" >> "$GITHUB_OUTPUT"
+            echo "Detected Pre-release for version: $VERSION_NO_V (tag: $VERSION_WITH_V)"
+            echo "Short description: $SHORT_DESC"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "release_type=" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+            echo "version_with_v=" >> "$GITHUB_OUTPUT"
+            echo "tag_name=" >> "$GITHUB_OUTPUT"
+            echo "short_desc=" >> "$GITHUB_OUTPUT"
+            echo "Commit does not begin with '[Release: <version>]' or '[Pre-release: <version>]'. Skipping release successfully."
+          fi
+          exit 0
+
+      - name: Generate git shortlog, update CHANGELOG.md, and update README.md
+        id: shortlog
+        if: steps.check_commit.outputs.should_release == 'true'
+        run: |
+          VERSION_NO_V="${{ steps.check_commit.outputs.version }}"
+          VERSION_WITH_V="${{ steps.check_commit.outputs.version_with_v }}"
+          SHORT_DESC="${{ steps.check_commit.outputs.short_desc }}"
+          IS_PRERELEASE="${{ steps.check_commit.outputs.is_prerelease }}"
+          git shortlog HEAD < /dev/null > release_shortlog.txt
+
+          # Create release description with ## v<version>
+          {
+            echo "## $VERSION_WITH_V"
+            if [ -n "$SHORT_DESC" ]; then
+              echo "**Short Description:** $SHORT_DESC"
+            fi
+            echo '```'
+            cat release_shortlog.txt
+            echo '```'
+          } > release_notes.txt
+
+          # Ensure CHANGELOG.md exists
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "### This is the changelog, auto updated by Github Actions." >> CHANGELOG.md
+            echo "---" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Append entry to CHANGELOG.md with ## v<version>
+          {
+            echo ""
+            echo "## $VERSION_WITH_V"
+            if [ -n "$SHORT_DESC" ]; then
+              echo "**Short Description:** $SHORT_DESC"
+            fi
+            echo '```'
+            cat release_shortlog.txt
+            echo '```'
+          } >> CHANGELOG.md
+
+          # Update README.md download links
+          python3 - "$VERSION_NO_V" "$IS_PRERELEASE" << 'PYEOF'
+import re, sys
+
+version_no_v = sys.argv[1]
+version_with_v = f"v{version_no_v}"
+is_prerelease = sys.argv[2].lower() == "true"
+link = f"[DevBrowser-{version_no_v}-release.apk](releases/download/{version_with_v}/DevBrowser-{version_no_v}-release.apk)"
+
+try:
+    with open("README.md", "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Update line under **Latest Release (includes unstable):**
+    content = re.sub(
+        r"(\*\*Latest Release \(includes unstable\):\*\*[^\S\r\n]*\r?\n)[^\r\n]+",
+        r"\g<1>" + link,
+        content
+    )
+
+    # Update line under **Latest Stable Release:** if not a pre-release
+    if not is_prerelease:
+        content = re.sub(
+            r"(\*\*Latest Stable Release:\*\*[^\S\r\n]*\r?\n)[^\r\n]+",
+            r"\g<1>" + link,
+            content
+        )
+
+    with open("README.md", "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"Updated README.md with link: {link} (is_prerelease={is_prerelease})")
+except Exception as e:
+    print(f"Error updating README.md: {e}")
+PYEOF
+
+          # Commit and push updated CHANGELOG.md and README.md back to the repository
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md README.md
+          if ! git diff --staged --quiet; then
+            git commit -m "docs: update CHANGELOG.md and README.md for $VERSION_WITH_V [skip ci]"
+            git push origin HEAD || true
+          fi
+
+          cat release_notes.txt
+          {
+            echo "shortlog<<EOF_SHORTLOG"
+            cat release_notes.txt
+            echo "EOF_SHORTLOG"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 21
+        if: steps.check_commit.outputs.should_release == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        if: steps.check_commit.outputs.should_release == 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Prepare Android SDK licenses and signing keystores
+        if: steps.check_commit.outputs.should_release == 'true'
+        run: |
+          if [ -n "$ANDROID_HOME" ] && [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          fi
+
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          if [ ! -f my-upload-key.jks ]; then
+            keytool -genkeypair -v \
+              -keystore my-upload-key.jks \
+              -storepass android \
+              -alias upload \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=DevBrowser Release,O=DevBrowser,C=US"
+          fi
+
+      - name: Compile app into APKs
+        if: steps.check_commit.outputs.should_release == 'true'
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+        run: |
+          gradle assembleDebug assembleRelease
+
+          mkdir -p release-apks
+          VERSION="${{ steps.check_commit.outputs.version }}"
+
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk "release-apks/DevBrowser-${VERSION}-release.apk"
+          fi
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk "release-apks/DevBrowser-${VERSION}-debug.apk"
+          fi
+
+          # Also copy any additional APK outputs if present
+          find app/build/outputs/apk -type f -name "*.apk" -exec cp -n {} release-apks/ \;
+          ls -lh release-apks/
+
+      - name: Create GitHub Release or Pre-release
+        if: steps.check_commit.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.check_commit.outputs.version_with_v }}
+          tag_name: ${{ steps.check_commit.outputs.tag_name }}
+          body_path: release_notes.txt
+          prerelease: ${{ steps.check_commit.outputs.is_prerelease == 'true' }}
+          files: release-apks/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
