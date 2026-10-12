@@ -5,13 +5,16 @@ import android.content.res.Configuration
 import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.BrowserPreferencesStore
 import com.example.devtools.DevToolsScripts
 import com.example.model.BrowserTab
+import com.example.model.ClearDataTimeRange
 import com.example.model.ConsoleLogEntry
 import com.example.model.ConsoleLogLevel
 import com.example.model.DevToolsPanelTab
@@ -131,7 +134,7 @@ data class BrowserUiState(
                 .sortedByDescending { it.value }
                 .filter { (url, _) ->
                     val lower = url.lowercase(Locale.US)
-                    lower !in pinnedUrls && lower !in excludedInternal && lower !in dismissedLower
+                    lower !in pinnedUrls && !lower.startsWith("devbrowser:") && lower !in dismissedLower
                 }
                 .take(4)
                 .map { (url, visits) ->
@@ -237,12 +240,7 @@ class BrowserDevToolsViewModel(
             syncWebViewThemePreference()
             if (isNewAttachment) {
                 val activeUrl = _uiState.value.activeTab.url
-                val isInternalCompose = activeUrl in listOf(
-                    BrowserTab.URL_HOME,
-                    BrowserTab.URL_BOOKMARKS,
-                    BrowserTab.URL_HISTORY,
-                    BrowserTab.URL_SETTINGS
-                )
+                val isInternalCompose = isComposeInternalUrl(activeUrl)
                 if (!isInternalCompose) {
                     if (activeUrl == BrowserTab.URL_TEST) {
                         webView.loadDataWithBaseURL(
@@ -313,13 +311,28 @@ class BrowserDevToolsViewModel(
         }
     }
 
+    fun isComposeInternalUrl(url: String): Boolean {
+        val lower = url.lowercase(Locale.US).trim()
+        return lower == BrowserTab.URL_HOME ||
+            lower == BrowserTab.URL_BOOKMARKS ||
+            lower == BrowserTab.URL_HISTORY ||
+            lower == BrowserTab.URL_SETTINGS ||
+            lower.startsWith("devbrowser:settings")
+    }
+
     private fun titleForInternalUrl(url: String): String {
-        return when (url.lowercase(Locale.US)) {
-            BrowserTab.URL_HOME -> "Home"
-            BrowserTab.URL_BOOKMARKS -> "Bookmarks"
-            BrowserTab.URL_HISTORY -> "History"
-            BrowserTab.URL_SETTINGS -> "Settings"
-            BrowserTab.URL_TEST -> "DevBrowser Test Page"
+        val lower = url.lowercase(Locale.US).trim()
+        return when {
+            lower == BrowserTab.URL_HOME -> "Home"
+            lower == BrowserTab.URL_BOOKMARKS -> "Bookmarks"
+            lower == BrowserTab.URL_HISTORY -> "History"
+            lower == BrowserTab.URL_SETTINGS -> "Settings"
+            lower == BrowserTab.URL_SETTINGS_THEME -> "Settings - Theme"
+            lower == BrowserTab.URL_SETTINGS_SEARCH -> "Settings - Search"
+            lower == BrowserTab.URL_SETTINGS_DATA -> "Settings - Data"
+            lower == BrowserTab.URL_SETTINGS_ABOUT -> "Settings - About"
+            lower.startsWith("devbrowser:settings/") -> "Settings - " + lower.removePrefix("devbrowser:settings/").replaceFirstChar { it.uppercase() }
+            lower == BrowserTab.URL_TEST -> "DevBrowser Test Page"
             else -> url
         }
     }
@@ -344,7 +357,8 @@ class BrowserDevToolsViewModel(
                     id = historyIdGenerator.getAndIncrement(),
                     title = title,
                     url = url,
-                    timestamp = SimpleDateFormat("HH:mm", Locale.US).format(Date())
+                    timestamp = SimpleDateFormat("HH:mm", Locale.US).format(Date()),
+                    createdAtMillis = System.currentTimeMillis()
                 )
                 (listOf(entry) + state.history).take(100)
             }
@@ -364,12 +378,7 @@ class BrowserDevToolsViewModel(
         _uiState.update { state ->
             val currentTab = state.activeTab
             // Only overwrite tab URL if it's not currently showing a Compose internal page (home/bookmarks/history/settings)
-            val isComposeInternal = currentTab.url in listOf(
-                BrowserTab.URL_HOME,
-                BrowserTab.URL_BOOKMARKS,
-                BrowserTab.URL_HISTORY,
-                BrowserTab.URL_SETTINGS
-            )
+            val isComposeInternal = isComposeInternalUrl(currentTab.url)
             val updatedTabs = state.tabs.map { tab ->
                 if (tab.id == state.activeTabId) {
                     if (isComposeInternal && displayUrl == BrowserTab.URL_TEST) {
@@ -410,12 +419,7 @@ class BrowserDevToolsViewModel(
 
         _uiState.update { state ->
             val currentTab = state.activeTab
-            val isComposeInternal = currentTab.url in listOf(
-                BrowserTab.URL_HOME,
-                BrowserTab.URL_BOOKMARKS,
-                BrowserTab.URL_HISTORY,
-                BrowserTab.URL_SETTINGS
-            )
+            val isComposeInternal = isComposeInternalUrl(currentTab.url)
             val updatedTabs = state.tabs.map { tab ->
                 if (tab.id == state.activeTabId) {
                     if (isComposeInternal && displayUrl == BrowserTab.URL_TEST) {
@@ -456,6 +460,11 @@ class BrowserDevToolsViewModel(
             lower == "devbrowser:bookmarks" -> BrowserTab.URL_BOOKMARKS
             lower == "devbrowser:history" -> BrowserTab.URL_HISTORY
             lower == "devbrowser:settings" -> BrowserTab.URL_SETTINGS
+            lower == "devbrowser:settings/theme" -> BrowserTab.URL_SETTINGS_THEME
+            lower == "devbrowser:settings/search" -> BrowserTab.URL_SETTINGS_SEARCH
+            lower == "devbrowser:settings/data" -> BrowserTab.URL_SETTINGS_DATA
+            lower == "devbrowser:settings/about" -> BrowserTab.URL_SETTINGS_ABOUT
+            lower.startsWith("devbrowser:settings/") -> lower
             lower == "devbrowser:test" || lower == "demo" || lower == "sandbox" ||
                 lower.contains("devscope.local") || lower.contains("devbrowser.internal") -> BrowserTab.URL_TEST
             lower.startsWith("devbrowser:") -> lower
@@ -479,12 +488,7 @@ class BrowserDevToolsViewModel(
             currentTab.backStack
         }
 
-        val isInternalCompose = finalUrl in listOf(
-            BrowserTab.URL_HOME,
-            BrowserTab.URL_BOOKMARKS,
-            BrowserTab.URL_HISTORY,
-            BrowserTab.URL_SETTINGS
-        )
+        val isInternalCompose = isComposeInternalUrl(finalUrl)
 
         val newTitle = if (finalUrl.startsWith("devbrowser:")) {
             titleForInternalUrl(finalUrl)
@@ -533,13 +537,7 @@ class BrowserDevToolsViewModel(
 
     fun reloadActivePage() {
         val currentUrl = _uiState.value.activeTab.url
-        if (currentUrl in listOf(
-                BrowserTab.URL_HOME,
-                BrowserTab.URL_BOOKMARKS,
-                BrowserTab.URL_HISTORY,
-                BrowserTab.URL_SETTINGS
-            )
-        ) {
+        if (isComposeInternalUrl(currentUrl)) {
             return
         }
         viewModelScope.launch(Dispatchers.Main) {
@@ -846,13 +844,94 @@ class BrowserDevToolsViewModel(
         persistShortcutsAndHistory()
     }
 
-    fun clearAllBrowserSiteData() {
-        clearStorageByType(StorageType.LOCAL_STORAGE)
-        clearStorageByType(StorageType.SESSION_STORAGE)
-        clearStorageByType(StorageType.COOKIES)
-        viewModelScope.launch(Dispatchers.Main) {
-            webViewRef?.clearCache(true)
+    fun clearBrowsingData(
+        targetDomain: String? = null,
+        timeRange: ClearDataTimeRange = ClearDataTimeRange.ALL_TIME,
+        deleteHistory: Boolean = true,
+        deleteCookies: Boolean = true,
+        deleteCache: Boolean = true,
+        deleteStorage: Boolean = true
+    ) {
+        val now = System.currentTimeMillis()
+        val cutoffTime = if (timeRange == ClearDataTimeRange.ALL_TIME) 0L else now - timeRange.durationMillis
+
+        if (deleteHistory) {
+            _uiState.update { state ->
+                val updatedHistory = state.history.filterNot { item ->
+                    val matchesTime = item.createdAtMillis >= cutoffTime
+                    val matchesDomain = targetDomain.isNullOrBlank() || item.url.contains(targetDomain, ignoreCase = true)
+                    matchesTime && matchesDomain
+                }
+                val updatedVisits = if (targetDomain.isNullOrBlank() && timeRange == ClearDataTimeRange.ALL_TIME) {
+                    emptyMap()
+                } else if (!targetDomain.isNullOrBlank()) {
+                    state.siteVisitCounts.filterNot { it.key.contains(targetDomain, ignoreCase = true) }
+                } else {
+                    state.siteVisitCounts
+                }
+                state.copy(history = updatedHistory, siteVisitCounts = updatedVisits)
+            }
+            persistShortcutsAndHistory()
         }
+
+        if (deleteCookies) {
+            try {
+                val cookieManager = CookieManager.getInstance()
+                if (targetDomain.isNullOrBlank()) {
+                    cookieManager.removeAllCookies(null)
+                    cookieManager.flush()
+                } else {
+                    val urlHttps = "https://$targetDomain"
+                    val urlHttp = "http://$targetDomain"
+                    val cookies = cookieManager.getCookie(urlHttps) ?: cookieManager.getCookie(urlHttp)
+                    if (cookies != null) {
+                        cookies.split(";").forEach { c ->
+                            val name = c.substringBefore("=").trim()
+                            if (name.isNotEmpty()) {
+                                cookieManager.setCookie(urlHttps, "$name=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; Domain=.$targetDomain")
+                                cookieManager.setCookie(urlHttps, "$name=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/")
+                            }
+                        }
+                    }
+                    cookieManager.flush()
+                }
+            } catch (e: Exception) {
+                Log.e("DevBrowser", "Error clearing cookies", e)
+            }
+        }
+
+        if (deleteStorage) {
+            try {
+                if (targetDomain.isNullOrBlank()) {
+                    WebStorage.getInstance().deleteAllData()
+                    clearStorageByType(StorageType.LOCAL_STORAGE)
+                    clearStorageByType(StorageType.SESSION_STORAGE)
+                } else {
+                    WebStorage.getInstance().deleteOrigin("https://$targetDomain")
+                    WebStorage.getInstance().deleteOrigin("http://$targetDomain")
+                    runJs("if(location.hostname.includes('$targetDomain')) { try { localStorage.clear(); sessionStorage.clear(); } catch(e){} }")
+                }
+            } catch (e: Exception) {
+                Log.e("DevBrowser", "Error clearing storage", e)
+            }
+        }
+
+        if (deleteCache) {
+            viewModelScope.launch(Dispatchers.Main) {
+                webViewRef?.clearCache(true)
+            }
+        }
+    }
+
+    fun clearAllBrowserSiteData() {
+        clearBrowsingData(
+            targetDomain = null,
+            timeRange = ClearDataTimeRange.ALL_TIME,
+            deleteHistory = true,
+            deleteCookies = true,
+            deleteCache = true,
+            deleteStorage = true
+        )
     }
 
     // Multi-Tab Actions
@@ -940,13 +1019,7 @@ class BrowserDevToolsViewModel(
 
     fun toggleElementPicker() {
         val currentUrl = _uiState.value.activeTab.url
-        if (currentUrl in listOf(
-                BrowserTab.URL_HOME,
-                BrowserTab.URL_BOOKMARKS,
-                BrowserTab.URL_HISTORY,
-                BrowserTab.URL_SETTINGS
-            )
-        ) {
+        if (isComposeInternalUrl(currentUrl)) {
             // Switch to devbrowser:test so the user has an HTML DOM page to pick elements on
             navigateToInput(BrowserTab.URL_TEST)
         }

@@ -157,4 +157,61 @@ class ExampleRobolectricTest {
         assertEquals(ThemeAccentColor.GREEN, reopenedSessionVm.uiState.value.accentColor)
         assertEquals("Kagi", reopenedSessionVm.uiState.value.searchEngine.displayName)
     }
+
+    @Test
+    fun `settings categories routing and data clearing by website and timerange`() {
+        val viewModel = BrowserDevToolsViewModel()
+
+        // Test Category URL routing
+        viewModel.navigateToInput(BrowserTab.URL_SETTINGS)
+        assertEquals(BrowserTab.URL_SETTINGS, viewModel.uiState.value.activeTab.url)
+
+        viewModel.navigateToInput(BrowserTab.URL_SETTINGS_THEME)
+        assertEquals(BrowserTab.URL_SETTINGS_THEME, viewModel.uiState.value.activeTab.url)
+
+        viewModel.navigateToInput(BrowserTab.URL_SETTINGS_SEARCH)
+        assertEquals(BrowserTab.URL_SETTINGS_SEARCH, viewModel.uiState.value.activeTab.url)
+
+        viewModel.navigateToInput(BrowserTab.URL_SETTINGS_DATA)
+        assertEquals(BrowserTab.URL_SETTINGS_DATA, viewModel.uiState.value.activeTab.url)
+
+        viewModel.navigateToInput(BrowserTab.URL_SETTINGS_ABOUT)
+        assertEquals(BrowserTab.URL_SETTINGS_ABOUT, viewModel.uiState.value.activeTab.url)
+
+        // Verify SettingsCategory enum helper
+        assertEquals(com.example.model.SettingsCategory.THEME, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/theme"))
+        assertEquals(com.example.model.SettingsCategory.SEARCH, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/search"))
+        assertEquals(com.example.model.SettingsCategory.DATA, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/data"))
+        assertEquals(com.example.model.SettingsCategory.ABOUT, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/about"))
+        assertEquals(null, com.example.model.SettingsCategory.fromUrl("devbrowser:settings"))
+
+        // Add history visits for multiple domains
+        viewModel.navigateToInput("https://github.com/Green0Field/DevBrowser")
+        viewModel.onPageFinished("https://github.com/Green0Field/DevBrowser", "DevBrowser Repo", false, false)
+
+        viewModel.navigateToInput("https://google.com")
+        viewModel.onPageFinished("https://google.com", "Google", false, false)
+
+        val initialHistory = viewModel.uiState.value.history
+        assertTrue(initialHistory.any { it.url.contains("github.com") })
+        assertTrue(initialHistory.any { it.url.contains("google.com") })
+
+        // Clear data ONLY for google.com
+        viewModel.clearBrowsingData(
+            targetDomain = "google.com",
+            timeRange = com.example.model.ClearDataTimeRange.ALL_TIME,
+            deleteHistory = true,
+            deleteCookies = true,
+            deleteCache = false,
+            deleteStorage = true
+        )
+
+        val updatedHistory = viewModel.uiState.value.history
+        assertFalse(updatedHistory.any { it.url.contains("google.com") })
+        assertTrue(updatedHistory.any { it.url.contains("github.com") })
+
+        // Clear ALL data
+        viewModel.clearAllBrowserSiteData()
+        assertTrue(viewModel.uiState.value.history.isEmpty())
+    }
 }

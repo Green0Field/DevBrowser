@@ -140,6 +140,7 @@ class BrowserPreferencesStore(context: Context) {
                     put("title", item.title)
                     put("url", item.url)
                     put("timestamp", item.timestamp)
+                    put("createdAtMillis", item.createdAtMillis)
                 }
             )
         }
@@ -221,7 +222,8 @@ class BrowserPreferencesStore(context: Context) {
                     val title = obj.optString("title", "Home")
                     val url = obj.optString("url", BrowserTab.URL_HOME)
                     val timestamp = obj.optString("timestamp", "")
-                    add(HistoryItem(id = id, title = title, url = url, timestamp = timestamp))
+                    val createdAt = obj.optLong("createdAtMillis", System.currentTimeMillis())
+                    add(HistoryItem(id = id, title = title, url = url, timestamp = timestamp, createdAtMillis = createdAt))
                 }
             }
         }.getOrNull()

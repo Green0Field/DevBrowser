@@ -56,7 +56,7 @@ import com.example.ui.components.TabSwitcherOverlay
 import com.example.ui.pages.DevBrowserBookmarksPage
 import com.example.ui.pages.DevBrowserHistoryPage
 import com.example.ui.pages.DevBrowserHomePage
-import com.example.ui.pages.DevBrowserSettingsPage
+import com.example.ui.pages.settings.DevBrowserSettingsPage
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.BrowserDevToolsViewModel
 import com.example.viewmodel.BrowserUiState
@@ -380,8 +380,8 @@ private fun BrowserViewportContainer(
             .testTag("browser_webview_container"),
         contentAlignment = Alignment.Center
     ) {
-        when (activeUrl) {
-            BrowserTab.URL_HOME -> DevBrowserHomePage(
+        when {
+            activeUrl == BrowserTab.URL_HOME -> DevBrowserHomePage(
                 shortcuts = uiState.homeShortcuts,
                 searchEngine = uiState.searchEngine,
                 onNavigate = { viewModel.navigateToInput(it) },
@@ -391,7 +391,7 @@ private fun BrowserViewportContainer(
                 onRemoveShortcut = viewModel::removeShortcut
             )
 
-            BrowserTab.URL_BOOKMARKS -> DevBrowserBookmarksPage(
+            activeUrl == BrowserTab.URL_BOOKMARKS -> DevBrowserBookmarksPage(
                 bookmarks = uiState.bookmarks,
                 onOpenBookmark = viewModel::openBookmark,
                 onSelectUrl = { viewModel.navigateToInput(it) },
@@ -399,20 +399,31 @@ private fun BrowserViewportContainer(
                 onRemoveBookmark = viewModel::removeBookmark
             )
 
-            BrowserTab.URL_HISTORY -> DevBrowserHistoryPage(
+            activeUrl == BrowserTab.URL_HISTORY -> DevBrowserHistoryPage(
                 history = uiState.history,
                 onSelectUrl = { viewModel.navigateToInput(it) },
                 onDeleteHistoryItem = viewModel::deleteHistoryItem,
                 onClearHistory = viewModel::clearBrowsingHistory
             )
 
-            BrowserTab.URL_SETTINGS -> DevBrowserSettingsPage(
+            activeUrl == BrowserTab.URL_SETTINGS || activeUrl.startsWith("devbrowser:settings") -> DevBrowserSettingsPage(
+                currentUrl = uiState.activeTab.url,
+                onNavigate = { viewModel.navigateToInput(it) },
+                onNavigateBack = {
+                    if (uiState.activeTab.url.lowercase(Locale.US) != BrowserTab.URL_SETTINGS) {
+                        viewModel.navigateToInput(BrowserTab.URL_SETTINGS)
+                    } else {
+                        viewModel.goBack()
+                    }
+                },
                 isDarkTheme = uiState.isDarkTheme,
                 isNeonMode = uiState.isNeonMode,
                 accentColor = uiState.accentColor,
                 searchEngines = uiState.searchEngines,
                 searchEngine = uiState.searchEngine,
                 javaScriptEnabled = uiState.javaScriptEnabled,
+                history = uiState.history,
+                siteVisitCounts = uiState.siteVisitCounts,
                 onSetDarkTheme = viewModel::setDarkTheme,
                 onSetNeonMode = viewModel::setNeonMode,
                 onSelectAccentColor = viewModel::setThemeAccentColor,
@@ -420,7 +431,7 @@ private fun BrowserViewportContainer(
                 onAddCustomSearchEngine = viewModel::addCustomSearchEngine,
                 onRemoveCustomSearchEngine = viewModel::removeCustomSearchEngine,
                 onToggleJavaScript = viewModel::setJavaScriptEnabled,
-                onClearSiteData = viewModel::clearAllBrowserSiteData
+                onClearBrowsingData = viewModel::clearBrowsingData
             )
 
             else -> {

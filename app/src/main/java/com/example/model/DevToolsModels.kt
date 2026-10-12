@@ -28,6 +28,10 @@ data class BrowserTab(
         const val URL_BOOKMARKS = "devbrowser:bookmarks"
         const val URL_HISTORY = "devbrowser:history"
         const val URL_SETTINGS = "devbrowser:settings"
+        const val URL_SETTINGS_THEME = "devbrowser:settings/theme"
+        const val URL_SETTINGS_SEARCH = "devbrowser:settings/search"
+        const val URL_SETTINGS_DATA = "devbrowser:settings/data"
+        const val URL_SETTINGS_ABOUT = "devbrowser:settings/about"
         const val INTERNAL_TEST_BASE_URL = "https://devbrowser.internal/test"
     }
 }
@@ -521,5 +525,62 @@ data class HistoryItem(
     val id: Long,
     val title: String,
     val url: String,
-    val timestamp: String
+    val timestamp: String,
+    val createdAtMillis: Long = System.currentTimeMillis()
 )
+
+enum class ClearDataTimeRange(val displayName: String, val durationMillis: Long) {
+    LAST_HOUR("Last hour", 60 * 60 * 1000L),
+    LAST_24_HOURS("Last 24 hours", 24 * 60 * 60 * 1000L),
+    LAST_7_DAYS("Last 7 days", 7 * 24 * 60 * 60 * 1000L),
+    LAST_4_WEEKS("Last 4 weeks", 28L * 24 * 60 * 60 * 1000L),
+    ALL_TIME("All time", Long.MAX_VALUE)
+}
+
+data class SiteDataItem(
+    val domain: String,
+    val historyCount: Int,
+    val visitCount: Int,
+    val lastVisited: String
+)
+
+enum class SettingsCategory(
+    val categoryId: String,
+    val displayName: String,
+    val subtitle: String,
+    val url: String
+) {
+    THEME(
+        categoryId = "theme",
+        displayName = "Theme & Colors",
+        subtitle = "Light and dark mode, neon accents, color palettes",
+        url = BrowserTab.URL_SETTINGS_THEME
+    ),
+    SEARCH(
+        categoryId = "search",
+        displayName = "Search Engine",
+        subtitle = "Default search provider, query templates, custom engines",
+        url = BrowserTab.URL_SETTINGS_SEARCH
+    ),
+    DATA(
+        categoryId = "data",
+        displayName = "Site Data & Privacy",
+        subtitle = "Cookies, cache, browsing history, and per-site data",
+        url = BrowserTab.URL_SETTINGS_DATA
+    ),
+    ABOUT(
+        categoryId = "about",
+        displayName = "About DevBrowser",
+        subtitle = "Version v0.1, GitHub repository, browser engine",
+        url = BrowserTab.URL_SETTINGS_ABOUT
+    );
+
+    companion object {
+        fun fromUrl(rawUrl: String): SettingsCategory? {
+            val lower = rawUrl.lowercase(java.util.Locale.US).trim()
+            return entries.firstOrNull {
+                lower == it.url || lower == "devbrowser:settings/${it.categoryId}" || lower.endsWith("/${it.categoryId}")
+            }
+        }
+    }
+}
