@@ -1752,6 +1752,32 @@ fun DevBrowserSettingsPage(
                                 )
                             }
                         }
+
+                        HorizontalDivider(color = cs.outlineVariant)
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "App Version",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = cs.onSurface
+                                )
+                                Text(
+                                    text = "DevBrowser preview release",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = cs.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = "v${com.example.BuildConfig.VERSION_NAME}",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = cs.primary
+                            )
+                        }
                     }
                 }
             }

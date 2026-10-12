@@ -38,7 +38,7 @@ jobs:
             fi
             echo "Detected regular Release for version: $VERSION"
             echo "Short description: $SHORT_DESC"
-          elif [[ "$COMMIT_MSG" =~ ^\[[Pp]re-[Rr]elease:[[:space:]]*([^]]+)\](.*)$ ]]; then
+          elif [[ "$COMMIT_MSG" =~ ^\[[Pp]re-?[Rr]elease:[[:space:]]*([^]]+)\](.*)$ ]]; then
             VERSION="$(echo "${BASH_REMATCH[1]}" | xargs)"
             RAW_DESC="${BASH_REMATCH[2]}"
             SHORT_DESC="$(echo "$RAW_DESC" | sed -e 's/^[[:space:]]*[-:]*[[:space:]]*//' -e 's/[[:space:]]*$//')"
