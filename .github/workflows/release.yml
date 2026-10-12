@@ -1,0 +1,167 @@
+name: Build and Release APK
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  release-on-commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit message for Release or Pre-release tag
+        id: check_commit
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          echo "Latest commit subject: $COMMIT_MSG"
+
+          if [[ "$COMMIT_MSG" =~ ^\[Release:[[:space:]]*([^]]+)\] ]]; then
+            VERSION="$(echo "${BASH_REMATCH[1]}" | xargs)"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "release_type=Release" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            if [[ "$VERSION" == v* ]]; then
+              echo "tag_name=$VERSION" >> "$GITHUB_OUTPUT"
+            else
+              echo "tag_name=v$VERSION" >> "$GITHUB_OUTPUT"
+            fi
+            echo "Detected regular Release for version: $VERSION"
+          elif [[ "$COMMIT_MSG" =~ ^\[[Pp]re-release:[[:space:]]*([^]]+)\] ]]; then
+            VERSION="$(echo "${BASH_REMATCH[1]}" | xargs)"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "release_type=Pre-release" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            if [[ "$VERSION" == v* ]]; then
+              echo "tag_name=$VERSION" >> "$GITHUB_OUTPUT"
+            else
+              echo "tag_name=v$VERSION" >> "$GITHUB_OUTPUT"
+            fi
+            echo "Detected Pre-release for version: $VERSION"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Commit does not begin with '[Release: <version>]' or '[Pre-release: <version>]'. Skipping release."
+          fi
+
+      - name: Generate git shortlog and update CHANGELOG.md
+        id: shortlog
+        if: steps.check_commit.outputs.should_release == 'true'
+        run: |
+          VERSION="${{ steps.check_commit.outputs.version }}"
+          git shortlog HEAD < /dev/null > release_shortlog.txt
+
+          # Ensure CHANGELOG.md exists
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+          fi
+
+          # Append git shortlog output under version header to CHANGELOG.md
+          {
+            echo ""
+            echo "## $VERSION"
+            cat release_shortlog.txt
+          } >> CHANGELOG.md
+
+          # Commit and push updated CHANGELOG.md back to the repository
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if ! git diff --staged --quiet; then
+            git commit -m "docs: update CHANGELOG.md for $VERSION [skip ci]"
+            git push origin HEAD || true
+          fi
+
+          cat release_shortlog.txt
+          {
+            echo "shortlog<<EOF_SHORTLOG"
+            cat release_shortlog.txt
+            echo "EOF_SHORTLOG"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 21
+        if: steps.check_commit.outputs.should_release == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        if: steps.check_commit.outputs.should_release == 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Prepare Android SDK licenses and signing keystores
+        if: steps.check_commit.outputs.should_release == 'true'
+        run: |
+          if [ -n "$ANDROID_HOME" ] && [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          fi
+
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          if [ ! -f my-upload-key.jks ]; then
+            keytool -genkeypair -v \
+              -keystore my-upload-key.jks \
+              -storepass android \
+              -alias upload \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=DevBrowser Release,O=DevBrowser,C=US"
+          fi
+
+      - name: Compile app into APKs
+        if: steps.check_commit.outputs.should_release == 'true'
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+        run: |
+          gradle assembleDebug assembleRelease
+
+          mkdir -p release-apks
+          VERSION="${{ steps.check_commit.outputs.version }}"
+
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk "release-apks/DevBrowser-${VERSION}-release.apk"
+          fi
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk "release-apks/DevBrowser-${VERSION}-debug.apk"
+          fi
+
+          # Also copy any additional APK outputs if present
+          find app/build/outputs/apk -type f -name "*.apk" -exec cp -n {} release-apks/ \;
+          ls -lh release-apks/
+
+      - name: Create GitHub Release or Pre-release
+        if: steps.check_commit.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.check_commit.outputs.version }}
+          tag_name: ${{ steps.check_commit.outputs.tag_name }}
+          body_path: release_shortlog.txt
+          prerelease: ${{ steps.check_commit.outputs.is_prerelease == 'true' }}
+          files: release-apks/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
