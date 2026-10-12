@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +44,7 @@ import com.example.model.HistoryItem
 import com.example.model.SearchEngineItem
 import com.example.model.SettingsCategory
 import com.example.model.ThemeAccentColor
+import com.example.model.VirusTotalRescanInterval
 
 @Composable
 fun DevBrowserSettingsPage(
@@ -72,6 +74,14 @@ fun DevBrowserSettingsPage(
         deleteCache: Boolean,
         deleteStorage: Boolean
     ) -> Unit,
+    isVirusTotalEnabled: Boolean = false,
+    virusTotalApiKey: String = "",
+    virusTotalRescanInterval: VirusTotalRescanInterval = VirusTotalRescanInterval.HOURS_24,
+    virusTotalCachedScansCount: Int = 0,
+    onSetVirusTotalEnabled: (Boolean) -> Unit = {},
+    onSaveVirusTotalApiKey: (String) -> Unit = {},
+    onSelectVirusTotalRescanInterval: (VirusTotalRescanInterval) -> Unit = {},
+    onClearVirusTotalScanCache: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -193,7 +203,23 @@ fun DevBrowserSettingsPage(
                     )
                 }
 
-                // 4. About Category Card
+                // 4. VirusTotal Category Card
+                item {
+                    val vtStatus = when {
+                        !isVirusTotalEnabled -> "Disabled"
+                        virusTotalApiKey.isBlank() -> "Key Required"
+                        else -> "Active • ${virusTotalRescanInterval.displayName}"
+                    }
+                    SettingsCategoryCard(
+                        category = SettingsCategory.VIRUSTOTAL,
+                        icon = Icons.Default.Shield,
+                        statusPill = vtStatus,
+                        onClick = { onNavigate(SettingsCategory.VIRUSTOTAL.url) },
+                        testTag = "settings_category_card_virustotal"
+                    )
+                }
+
+                // 5. About Category Card
                 item {
                     SettingsCategoryCard(
                         category = SettingsCategory.ABOUT,
@@ -230,6 +256,17 @@ fun DevBrowserSettingsPage(
                             history = history,
                             siteVisitCounts = siteVisitCounts,
                             onClearBrowsingData = onClearBrowsingData
+                        )
+
+                        SettingsCategory.VIRUSTOTAL -> VirusTotalSettingsSection(
+                            isEnabled = isVirusTotalEnabled,
+                            apiKey = virusTotalApiKey,
+                            rescanInterval = virusTotalRescanInterval,
+                            cachedScansCount = virusTotalCachedScansCount,
+                            onSetEnabled = onSetVirusTotalEnabled,
+                            onSaveApiKey = onSaveVirusTotalApiKey,
+                            onSelectRescanInterval = onSelectVirusTotalRescanInterval,
+                            onClearScanCache = onClearVirusTotalScanCache
                         )
 
                         SettingsCategory.ABOUT -> AboutSettingsSection(

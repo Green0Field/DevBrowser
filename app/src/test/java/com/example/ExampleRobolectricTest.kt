@@ -9,10 +9,16 @@ import com.example.model.DevToolsPanelTab
 import com.example.model.DomNodeItem
 import com.example.model.ShortcutSource
 import com.example.model.ThemeAccentColor
+import com.example.model.SettingsCategory
+import com.example.model.VirusTotalRescanInterval
+import com.example.model.VirusTotalScanResult
+import com.example.model.VirusTotalThreatLevel
 import com.example.viewmodel.BrowserDevToolsViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -213,5 +219,81 @@ class ExampleRobolectricTest {
         // Clear ALL data
         viewModel.clearAllBrowserSiteData()
         assertTrue(viewModel.uiState.value.history.isEmpty())
+    }
+
+    @Test
+    fun `virustotal categorization, persistence and warning interception`() {
+        // Test categorization rules
+        assertEquals(VirusTotalThreatLevel.SAFE, VirusTotalScanResult.calculateThreatLevel(0))
+        assertEquals(VirusTotalThreatLevel.SAFE, VirusTotalScanResult.calculateThreatLevel(3))
+        assertEquals(VirusTotalThreatLevel.CAREFUL, VirusTotalScanResult.calculateThreatLevel(4))
+        assertEquals(VirusTotalThreatLevel.CAREFUL, VirusTotalScanResult.calculateThreatLevel(8))
+        assertEquals(VirusTotalThreatLevel.DANGER, VirusTotalScanResult.calculateThreatLevel(9))
+        assertEquals(VirusTotalThreatLevel.DANGER, VirusTotalScanResult.calculateThreatLevel(25))
+
+        // Test settings category routing
+        assertEquals(SettingsCategory.VIRUSTOTAL, SettingsCategory.fromUrl("devbrowser:settings/virustotal"))
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = BrowserDevToolsViewModel(context)
+        viewModel.attachPreferencesIfNeeded(context)
+
+        // Configure VirusTotal settings
+        viewModel.setVirusTotalEnabled(true)
+        viewModel.setVirusTotalApiKey("test-fake-vt-api-key")
+        viewModel.setVirusTotalRescanInterval(VirusTotalRescanInterval.HOURS_6)
+
+        assertTrue(viewModel.uiState.value.isVirusTotalEnabled)
+        assertEquals("test-fake-vt-api-key", viewModel.uiState.value.virusTotalApiKey)
+        assertEquals(VirusTotalRescanInterval.HOURS_6, viewModel.uiState.value.virusTotalRescanInterval)
+
+        // Simulate a cached scan for a dangerous site (12 flags)
+        val dangerScan = VirusTotalScanResult(
+            url = "https://malicious-test.example.com",
+            domain = "malicious-test.example.com",
+            maliciousCount = 12,
+            suspiciousCount = 3,
+            harmlessCount = 2,
+            undetectedCount = 50,
+            totalEngines = 67,
+            scanTimestamp = System.currentTimeMillis()
+        )
+        viewModel.saveDirectScanResult(dangerScan)
+
+        // Navigating to the dangerous site should trigger a warning
+        viewModel.navigateToInput("https://malicious-test.example.com")
+        assertNotNull(viewModel.uiState.value.activeWarningState)
+        assertEquals(VirusTotalThreatLevel.DANGER, viewModel.uiState.value.activeWarningState?.threatLevel)
+
+        // User bypasses warning
+        viewModel.bypassWarning("https://malicious-test.example.com")
+        assertNull(viewModel.uiState.value.activeWarningState)
+        assertTrue(viewModel.uiState.value.bypassedWarningUrls.contains("malicious-test.example.com"))
+
+        // Simulate a cached scan for a careful site (5 flags)
+        val carefulScan = VirusTotalScanResult(
+            url = "https://suspicious-test.example.com",
+            domain = "suspicious-test.example.com",
+            maliciousCount = 5,
+            totalEngines = 70,
+            scanTimestamp = System.currentTimeMillis()
+        )
+        viewModel.saveDirectScanResult(carefulScan)
+
+        viewModel.navigateToInput("https://suspicious-test.example.com")
+        assertNotNull(viewModel.uiState.value.activeWarningState)
+        assertEquals(VirusTotalThreatLevel.CAREFUL, viewModel.uiState.value.activeWarningState?.threatLevel)
+
+        // Simulate safe site (1 flag)
+        val safeScan = VirusTotalScanResult(
+            url = "https://safe-test.example.com",
+            domain = "safe-test.example.com",
+            maliciousCount = 1,
+            totalEngines = 72,
+            scanTimestamp = System.currentTimeMillis()
+        )
+        viewModel.saveDirectScanResult(safeScan)
+        viewModel.navigateToInput("https://safe-test.example.com")
+        assertNull(viewModel.uiState.value.activeWarningState)
     }
 }

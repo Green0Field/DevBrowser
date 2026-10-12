@@ -56,6 +56,8 @@ import com.example.ui.components.TabSwitcherOverlay
 import com.example.ui.pages.DevBrowserBookmarksPage
 import com.example.ui.pages.DevBrowserHistoryPage
 import com.example.ui.pages.DevBrowserHomePage
+import com.example.ui.pages.security.VirusTotalScanDetailsDialog
+import com.example.ui.pages.security.VirusTotalWarningPage
 import com.example.ui.pages.settings.DevBrowserSettingsPage
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.BrowserDevToolsViewModel
@@ -224,7 +226,11 @@ fun BrowserDevToolsScreen(
                     onFindInPageQueryChange = viewModel::updateFindInPageQuery,
                     onFindNextInPage = viewModel::findNextInPage,
                     onOpenTabSwitcher = { viewModel.toggleTabSwitcher(true) },
-                    onToggleDevTools = viewModel::toggleDevTools
+                    onToggleDevTools = viewModel::toggleDevTools,
+                    virusTotalScanResult = uiState.currentScanResult,
+                    isVirusTotalEnabled = uiState.isVirusTotalEnabled,
+                    isScanningVirusTotal = uiState.isScanningVirusTotal,
+                    onOpenSecurityPopup = { viewModel.setSecurityPopupVisible(true) }
                 )
 
                 // Main Content Area: Adaptive Split between Browser Viewport and Chrome DevTools Dock
@@ -360,6 +366,25 @@ fun BrowserDevToolsScreen(
                     onDismiss = { viewModel.toggleTabSwitcher(false) }
                 )
             }
+
+            // VirusTotal Shield Scan Results Dialog
+            if (uiState.isSecurityPopupVisible) {
+                VirusTotalScanDetailsDialog(
+                    currentUrl = uiState.activeTab.url,
+                    scanResult = uiState.currentScanResult,
+                    isVirusTotalEnabled = uiState.isVirusTotalEnabled,
+                    hasApiKey = uiState.virusTotalApiKey.isNotBlank(),
+                    isScanning = uiState.isScanningVirusTotal,
+                    rescanInterval = uiState.virusTotalRescanInterval,
+                    onRescan = viewModel::rescanCurrentUrl,
+                    onOpenSettings = {
+                        viewModel.setSecurityPopupVisible(false)
+                        viewModel.navigateToInput(BrowserTab.URL_SETTINGS_VIRUSTOTAL)
+                    },
+                    onOpenExternalUrl = { viewModel.navigateToInput(it) },
+                    onDismiss = { viewModel.setSecurityPopupVisible(false) }
+                )
+            }
         }
     }
 }
@@ -380,7 +405,25 @@ private fun BrowserViewportContainer(
             .testTag("browser_webview_container"),
         contentAlignment = Alignment.Center
     ) {
+        val isBlockedByWarning = uiState.activeWarningState != null &&
+            activeUrl !in uiState.bypassedWarningUrls &&
+            uiState.activeWarningState.domain !in uiState.bypassedWarningUrls
+
         when {
+            isBlockedByWarning -> VirusTotalWarningPage(
+                warningState = uiState.activeWarningState!!,
+                onGoBack = {
+                    if (uiState.activeTab.canGoBack) {
+                        viewModel.goBack()
+                    } else {
+                        viewModel.navigateToInput(BrowserTab.URL_HOME)
+                    }
+                },
+                onContinueAnyway = { targetUrl ->
+                    viewModel.bypassWarning(targetUrl)
+                }
+            )
+
             activeUrl == BrowserTab.URL_HOME -> DevBrowserHomePage(
                 shortcuts = uiState.homeShortcuts,
                 searchEngine = uiState.searchEngine,
@@ -431,7 +474,15 @@ private fun BrowserViewportContainer(
                 onAddCustomSearchEngine = viewModel::addCustomSearchEngine,
                 onRemoveCustomSearchEngine = viewModel::removeCustomSearchEngine,
                 onToggleJavaScript = viewModel::setJavaScriptEnabled,
-                onClearBrowsingData = viewModel::clearBrowsingData
+                onClearBrowsingData = viewModel::clearBrowsingData,
+                isVirusTotalEnabled = uiState.isVirusTotalEnabled,
+                virusTotalApiKey = uiState.virusTotalApiKey,
+                virusTotalRescanInterval = uiState.virusTotalRescanInterval,
+                virusTotalCachedScansCount = uiState.virusTotalScanCache.size,
+                onSetVirusTotalEnabled = viewModel::setVirusTotalEnabled,
+                onSaveVirusTotalApiKey = viewModel::setVirusTotalApiKey,
+                onSelectVirusTotalRescanInterval = viewModel::setVirusTotalRescanInterval,
+                onClearVirusTotalScanCache = viewModel::clearVirusTotalScanCache
             )
 
             else -> {

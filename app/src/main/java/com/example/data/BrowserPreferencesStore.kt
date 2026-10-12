@@ -10,6 +10,9 @@ import com.example.model.QuickBookmark
 import com.example.model.SearchEngineItem
 import com.example.model.ShortcutSource
 import com.example.model.ThemeAccentColor
+import com.example.model.VirusTotalRescanInterval
+import com.example.model.VirusTotalScanResult
+import com.example.model.VirusTotalThreatLevel
 import com.example.viewmodel.BrowserUiState
 import org.json.JSONArray
 import org.json.JSONObject
@@ -40,6 +43,12 @@ class BrowserPreferencesStore(context: Context) {
         val siteTitles = loadStringMap(KEY_SITE_TITLES) ?: baseState.siteTitles
         val history = loadHistory() ?: baseState.history
 
+        val vtEnabled = prefs.getBoolean(KEY_VIRUSTOTAL_ENABLED, baseState.isVirusTotalEnabled)
+        val vtApiKey = prefs.getString(KEY_VIRUSTOTAL_API_KEY, baseState.virusTotalApiKey) ?: ""
+        val vtIntervalName = prefs.getString(KEY_VIRUSTOTAL_RESCAN_INTERVAL, baseState.virusTotalRescanInterval.name)
+        val vtInterval = runCatching { VirusTotalRescanInterval.valueOf(vtIntervalName ?: "") }.getOrDefault(VirusTotalRescanInterval.HOURS_24)
+        val vtScans = loadVirusTotalScanResults()
+
         return baseState.copy(
             isDarkTheme = isDark,
             isNeonMode = isNeon,
@@ -53,7 +62,11 @@ class BrowserPreferencesStore(context: Context) {
             siteVisitCounts = visitCounts,
             bookmarkClickCounts = clickCounts,
             siteTitles = siteTitles,
-            history = history
+            history = history,
+            isVirusTotalEnabled = vtEnabled,
+            virusTotalApiKey = vtApiKey,
+            virusTotalRescanInterval = vtInterval,
+            virusTotalScanCache = vtScans
         )
     }
 
@@ -269,6 +282,77 @@ class BrowserPreferencesStore(context: Context) {
         }.getOrNull()
     }
 
+    fun saveVirusTotalEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VIRUSTOTAL_ENABLED, enabled).commit()
+    }
+
+    fun saveVirusTotalApiKey(apiKey: String) {
+        prefs.edit().putString(KEY_VIRUSTOTAL_API_KEY, apiKey).commit()
+    }
+
+    fun saveVirusTotalRescanInterval(interval: VirusTotalRescanInterval) {
+        prefs.edit().putString(KEY_VIRUSTOTAL_RESCAN_INTERVAL, interval.name).commit()
+    }
+
+    fun saveVirusTotalScanResults(results: Map<String, VirusTotalScanResult>) {
+        val root = JSONObject()
+        results.forEach { (key, scan) ->
+            val obj = JSONObject().apply {
+                put("url", scan.url)
+                put("domain", scan.domain)
+                put("malicious", scan.maliciousCount)
+                put("suspicious", scan.suspiciousCount)
+                put("harmless", scan.harmlessCount)
+                put("undetected", scan.undetectedCount)
+                put("totalEngines", scan.totalEngines)
+                put("timestamp", scan.scanTimestamp)
+                put("threatLevel", scan.threatLevel.name)
+                put("permalink", scan.permalink ?: "")
+                put("dateFormatted", scan.scanDateFormatted)
+                put("errorMessage", scan.errorMessage ?: "")
+            }
+            root.put(key, obj)
+        }
+        prefs.edit().putString(KEY_VIRUSTOTAL_SCANS_JSON, root.toString()).commit()
+    }
+
+    fun loadVirusTotalScanResults(): Map<String, VirusTotalScanResult> {
+        val raw = prefs.getString(KEY_VIRUSTOTAL_SCANS_JSON, null) ?: return emptyMap()
+        return runCatching {
+            val root = JSONObject(raw)
+            val map = mutableMapOf<String, VirusTotalScanResult>()
+            val keys = root.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val obj = root.optJSONObject(key) ?: continue
+                val threatLevelName = obj.optString("threatLevel", VirusTotalThreatLevel.SAFE.name)
+                val threatLevel = runCatching { VirusTotalThreatLevel.valueOf(threatLevelName) }.getOrDefault(VirusTotalThreatLevel.SAFE)
+                val permalink = obj.optString("permalink", "").takeIf { it.isNotEmpty() }
+                val errorMsg = obj.optString("errorMessage", "").takeIf { it.isNotEmpty() }
+
+                map[key] = VirusTotalScanResult(
+                    url = obj.optString("url", ""),
+                    domain = obj.optString("domain", ""),
+                    maliciousCount = obj.optInt("malicious", 0),
+                    suspiciousCount = obj.optInt("suspicious", 0),
+                    harmlessCount = obj.optInt("harmless", 0),
+                    undetectedCount = obj.optInt("undetected", 0),
+                    totalEngines = obj.optInt("totalEngines", 0),
+                    scanTimestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                    threatLevel = threatLevel,
+                    permalink = permalink,
+                    scanDateFormatted = obj.optString("dateFormatted", ""),
+                    errorMessage = errorMsg
+                )
+            }
+            map
+        }.getOrDefault(emptyMap())
+    }
+
+    fun clearVirusTotalScanResults() {
+        prefs.edit().remove(KEY_VIRUSTOTAL_SCANS_JSON).commit()
+    }
+
     companion object {
         private const val PREFS_NAME = "devbrowser_user_preferences"
         private const val KEY_IS_DARK_THEME = "is_dark_theme"
@@ -284,5 +368,9 @@ class BrowserPreferencesStore(context: Context) {
         private const val KEY_BOOKMARK_CLICK_COUNTS = "bookmark_click_counts_json"
         private const val KEY_SITE_TITLES = "site_titles_json"
         private const val KEY_HISTORY_JSON = "history_json"
+        private const val KEY_VIRUSTOTAL_ENABLED = "virustotal_enabled"
+        private const val KEY_VIRUSTOTAL_API_KEY = "virustotal_api_key"
+        private const val KEY_VIRUSTOTAL_RESCAN_INTERVAL = "virustotal_rescan_interval"
+        private const val KEY_VIRUSTOTAL_SCANS_JSON = "virustotal_scans_json"
     }
 }

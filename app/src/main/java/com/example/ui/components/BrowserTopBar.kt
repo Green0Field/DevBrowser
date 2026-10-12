@@ -38,12 +38,17 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Dangerous
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.WarningAmber
+import com.example.model.VirusTotalScanResult
+import com.example.model.VirusTotalThreatLevel
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -108,6 +113,10 @@ fun BrowserTopBar(
     onFindNextInPage: (Boolean) -> Unit,
     onOpenTabSwitcher: () -> Unit,
     onToggleDevTools: () -> Unit,
+    virusTotalScanResult: VirusTotalScanResult? = null,
+    isVirusTotalEnabled: Boolean = false,
+    isScanningVirusTotal: Boolean = false,
+    onOpenSecurityPopup: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var urlInput by remember(activeTab.url) { mutableStateOf(activeTab.url) }
@@ -160,17 +169,41 @@ fun BrowserTopBar(
                 ) {
                     val isInternal = activeTab.url.startsWith("devbrowser:", ignoreCase = true)
                     val isSecure = activeTab.url.startsWith("https://")
-                    Icon(
-                        imageVector = if (isInternal) Icons.Default.Science else Icons.Default.Lock,
-                        contentDescription = "Address security indicator",
-                        tint = when {
-                            isInternal -> cs.primary
-                            isSecure -> DevEmerald
-                            else -> DevAmber
-                        },
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    val threat = virusTotalScanResult?.threatLevel
+
+                    val shieldTint = when {
+                        isInternal -> cs.primary
+                        isScanningVirusTotal -> cs.primary
+                        threat == VirusTotalThreatLevel.DANGER -> DevRose
+                        threat == VirusTotalThreatLevel.CAREFUL -> DevAmber
+                        threat == VirusTotalThreatLevel.SAFE -> DevEmerald
+                        isSecure -> DevEmerald
+                        else -> DevAmber
+                    }
+
+                    val shieldIcon = when {
+                        isInternal -> Icons.Default.Science
+                        threat == VirusTotalThreatLevel.DANGER -> Icons.Default.Dangerous
+                        threat == VirusTotalThreatLevel.CAREFUL -> Icons.Default.WarningAmber
+                        else -> Icons.Default.Shield
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .clickable { onOpenSecurityPopup() }
+                            .testTag("address_bar_shield_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = shieldIcon,
+                            contentDescription = "Security and scan status: ${threat?.displayName ?: if (isSecure) "Secure" else "Not secure"}",
+                            tint = shieldTint,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                     BasicTextField(
                         value = urlInput,
                         onValueChange = { urlInput = it },

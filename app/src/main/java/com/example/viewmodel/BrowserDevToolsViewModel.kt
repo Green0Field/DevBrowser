@@ -32,6 +32,11 @@ import com.example.model.ShortcutSource
 import com.example.model.StorageEntry
 import com.example.model.StorageType
 import com.example.model.ThemeAccentColor
+import com.example.data.VirusTotalApiClient
+import com.example.model.VirusTotalRescanInterval
+import com.example.model.VirusTotalScanResult
+import com.example.model.VirusTotalThreatLevel
+import com.example.model.VirusTotalWarningState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,10 +110,26 @@ data class BrowserUiState(
     val history: List<HistoryItem> = listOf(
         HistoryItem(1L, "Home", BrowserTab.URL_HOME, "Just now")
     ),
-    val snippets: List<JsSnippet> = DevToolsScripts.DEFAULT_SNIPPETS
+    val snippets: List<JsSnippet> = DevToolsScripts.DEFAULT_SNIPPETS,
+    val isVirusTotalEnabled: Boolean = false,
+    val virusTotalApiKey: String = "",
+    val virusTotalRescanInterval: VirusTotalRescanInterval = VirusTotalRescanInterval.HOURS_24,
+    val virusTotalScanCache: Map<String, VirusTotalScanResult> = emptyMap(),
+    val isScanningVirusTotal: Boolean = false,
+    val activeWarningState: VirusTotalWarningState? = null,
+    val bypassedWarningUrls: Set<String> = emptySet(),
+    val isSecurityPopupVisible: Boolean = false
 ) {
     val activeTab: BrowserTab
         get() = tabs.find { it.id == activeTabId } ?: tabs.first()
+
+    val currentScanResult: VirusTotalScanResult?
+        get() {
+            val url = activeTab.url
+            if (url.startsWith("devbrowser:", ignoreCase = true)) return null
+            val domain = VirusTotalApiClient.extractDomain(url)
+            return virusTotalScanCache[url] ?: virusTotalScanCache[domain]
+        }
 
     val errorCount: Int
         get() = consoleLogs.count { it.level == ConsoleLogLevel.ERROR }
@@ -330,6 +351,7 @@ class BrowserDevToolsViewModel(
             lower == BrowserTab.URL_SETTINGS_THEME -> "Settings - Theme"
             lower == BrowserTab.URL_SETTINGS_SEARCH -> "Settings - Search"
             lower == BrowserTab.URL_SETTINGS_DATA -> "Settings - Data"
+            lower == BrowserTab.URL_SETTINGS_VIRUSTOTAL -> "Settings - VirusTotal"
             lower == BrowserTab.URL_SETTINGS_ABOUT -> "Settings - About"
             lower.startsWith("devbrowser:settings/") -> "Settings - " + lower.removePrefix("devbrowser:settings/").replaceFirstChar { it.uppercase() }
             lower == BrowserTab.URL_TEST -> "DevBrowser Test Page"
@@ -442,6 +464,9 @@ class BrowserDevToolsViewModel(
         val activeUrl = _uiState.value.activeTab.url
         if (activeUrl == BrowserTab.URL_TEST || !activeUrl.startsWith("devbrowser:")) {
             recordHistoryEntry(cleanTitle, displayUrl)
+            if (activeUrl != BrowserTab.URL_TEST) {
+                scanUrlIfNeeded(activeUrl)
+            }
         }
 
         syncWebViewThemePreference()
@@ -463,6 +488,7 @@ class BrowserDevToolsViewModel(
             lower == "devbrowser:settings/theme" -> BrowserTab.URL_SETTINGS_THEME
             lower == "devbrowser:settings/search" -> BrowserTab.URL_SETTINGS_SEARCH
             lower == "devbrowser:settings/data" -> BrowserTab.URL_SETTINGS_DATA
+            lower == "devbrowser:settings/virustotal" -> BrowserTab.URL_SETTINGS_VIRUSTOTAL
             lower == "devbrowser:settings/about" -> BrowserTab.URL_SETTINGS_ABOUT
             lower.startsWith("devbrowser:settings/") -> lower
             lower == "devbrowser:test" || lower == "demo" || lower == "sandbox" ||
@@ -511,13 +537,17 @@ class BrowserDevToolsViewModel(
             }
             state.copy(
                 tabs = updatedTabs,
-                isDevToolsOpen = if (finalUrl == BrowserTab.URL_TEST) true else state.isDevToolsOpen
+                isDevToolsOpen = if (finalUrl == BrowserTab.URL_TEST) true else state.isDevToolsOpen,
+                activeWarningState = null
             )
         }
 
         recordHistoryEntry(newTitle, finalUrl)
 
         if (!isInternalCompose) {
+            if (!finalUrl.startsWith("devbrowser:", ignoreCase = true)) {
+                scanUrlIfNeeded(finalUrl)
+            }
             viewModelScope.launch(Dispatchers.Main) {
                 val wv = webViewRef ?: return@launch
                 if (finalUrl == BrowserTab.URL_TEST) {
@@ -1487,5 +1517,131 @@ class BrowserDevToolsViewModel(
 
     fun updateSourceSearchQuery(query: String) {
         _uiState.update { it.copy(sourceSearchQuery = query) }
+    }
+
+    // VirusTotal Security Operations
+    fun setVirusTotalEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isVirusTotalEnabled = enabled) }
+        preferencesStore?.saveVirusTotalEnabled(enabled)
+        if (enabled) {
+            val currentUrl = _uiState.value.activeTab.url
+            if (!currentUrl.startsWith("devbrowser:", ignoreCase = true)) {
+                scanUrlIfNeeded(currentUrl)
+            }
+        }
+    }
+
+    fun setVirusTotalApiKey(apiKey: String) {
+        val trimmed = apiKey.trim()
+        _uiState.update { it.copy(virusTotalApiKey = trimmed) }
+        preferencesStore?.saveVirusTotalApiKey(trimmed)
+    }
+
+    fun setVirusTotalRescanInterval(interval: VirusTotalRescanInterval) {
+        _uiState.update { it.copy(virusTotalRescanInterval = interval) }
+        preferencesStore?.saveVirusTotalRescanInterval(interval)
+    }
+
+    fun clearVirusTotalScanCache() {
+        _uiState.update { it.copy(virusTotalScanCache = emptyMap(), activeWarningState = null) }
+        preferencesStore?.clearVirusTotalScanResults()
+    }
+
+    fun setSecurityPopupVisible(visible: Boolean) {
+        _uiState.update { it.copy(isSecurityPopupVisible = visible) }
+    }
+
+    fun bypassWarning(url: String) {
+        val domain = VirusTotalApiClient.extractDomain(url)
+        _uiState.update { state ->
+            state.copy(
+                bypassedWarningUrls = state.bypassedWarningUrls + url + domain,
+                activeWarningState = null
+            )
+        }
+    }
+
+    fun dismissWarning() {
+        _uiState.update { it.copy(activeWarningState = null) }
+    }
+
+    fun setWarningAreYouSureDialog(show: Boolean) {
+        _uiState.update { state ->
+            val cur = state.activeWarningState ?: return@update state
+            state.copy(activeWarningState = cur.copy(showAreYouSureDialog = show))
+        }
+    }
+
+    fun scanUrlIfNeeded(targetUrl: String, forceRescan: Boolean = false) {
+        val state = _uiState.value
+        if (!state.isVirusTotalEnabled || state.virusTotalApiKey.isBlank()) return
+        if (targetUrl.startsWith("devbrowser:", ignoreCase = true)) return
+
+        val domain = VirusTotalApiClient.extractDomain(targetUrl)
+        val cached = state.virusTotalScanCache[targetUrl] ?: state.virusTotalScanCache[domain]
+        val intervalMillis = state.virusTotalRescanInterval.durationMillis
+        val now = System.currentTimeMillis()
+        val isFresh = cached != null && (intervalMillis > 0L && (now - cached.scanTimestamp) < intervalMillis)
+
+        if (!forceRescan && isFresh && cached != null) {
+            // Use cached result
+            if ((cached.threatLevel == VirusTotalThreatLevel.CAREFUL || cached.threatLevel == VirusTotalThreatLevel.DANGER) &&
+                targetUrl !in state.bypassedWarningUrls && domain !in state.bypassedWarningUrls
+            ) {
+                _uiState.update {
+                    it.copy(
+                        activeWarningState = VirusTotalWarningState(
+                            targetUrl = targetUrl,
+                            domain = domain,
+                            scanResult = cached,
+                            threatLevel = cached.threatLevel
+                        )
+                    )
+                }
+            }
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isScanningVirusTotal = true) }
+            val scanResult = VirusTotalApiClient.scanUrl(state.virusTotalApiKey, targetUrl)
+
+            _uiState.update { s ->
+                val newCache = s.virusTotalScanCache + (targetUrl to scanResult) + (domain to scanResult)
+                val isStillOnUrl = s.activeTab.url.equals(targetUrl, ignoreCase = true)
+                val shouldWarn = isStillOnUrl &&
+                    (scanResult.threatLevel == VirusTotalThreatLevel.CAREFUL || scanResult.threatLevel == VirusTotalThreatLevel.DANGER) &&
+                    targetUrl !in s.bypassedWarningUrls && domain !in s.bypassedWarningUrls
+
+                s.copy(
+                    virusTotalScanCache = newCache,
+                    isScanningVirusTotal = false,
+                    activeWarningState = if (shouldWarn) {
+                        VirusTotalWarningState(
+                            targetUrl = targetUrl,
+                            domain = domain,
+                            scanResult = scanResult,
+                            threatLevel = scanResult.threatLevel
+                        )
+                    } else s.activeWarningState
+                )
+            }
+            preferencesStore?.saveVirusTotalScanResults(_uiState.value.virusTotalScanCache)
+        }
+    }
+
+    fun rescanCurrentUrl() {
+        val activeUrl = _uiState.value.activeTab.url
+        if (!activeUrl.startsWith("devbrowser:", ignoreCase = true)) {
+            scanUrlIfNeeded(activeUrl, forceRescan = true)
+        }
+    }
+
+    fun saveDirectScanResult(result: VirusTotalScanResult) {
+        _uiState.update { state ->
+            val newCache = state.virusTotalScanCache + (result.url to result) + (result.domain to result)
+            state.copy(virusTotalScanCache = newCache)
+        }
+        preferencesStore?.saveVirusTotalScanResults(_uiState.value.virusTotalScanCache)
     }
 }

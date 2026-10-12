@@ -31,6 +31,7 @@ data class BrowserTab(
         const val URL_SETTINGS_THEME = "devbrowser:settings/theme"
         const val URL_SETTINGS_SEARCH = "devbrowser:settings/search"
         const val URL_SETTINGS_DATA = "devbrowser:settings/data"
+        const val URL_SETTINGS_VIRUSTOTAL = "devbrowser:settings/virustotal"
         const val URL_SETTINGS_ABOUT = "devbrowser:settings/about"
         const val INTERNAL_TEST_BASE_URL = "https://devbrowser.internal/test"
     }
@@ -567,6 +568,12 @@ enum class SettingsCategory(
         displayName = "Site Data & Privacy",
         subtitle = "Cookies, cache, browsing history, and per-site data",
         url = BrowserTab.URL_SETTINGS_DATA
+    ),
+    VIRUSTOTAL(
+        categoryId = "virustotal",
+        displayName = "VirusTotal Security",
+        subtitle = "Malware & phishing scan, API key, shield status",
+        url = BrowserTab.URL_SETTINGS_VIRUSTOTAL
     ),
     ABOUT(
         categoryId = "about",
