@@ -32,6 +32,7 @@ data class BrowserTab(
         const val URL_SETTINGS_SEARCH = "devbrowser:settings/search"
         const val URL_SETTINGS_DATA = "devbrowser:settings/data"
         const val URL_SETTINGS_VIRUSTOTAL = "devbrowser:settings/virustotal"
+        const val URL_SETTINGS_USERSCRIPTS = "devbrowser:settings/userscripts"
         const val URL_SETTINGS_ABOUT = "devbrowser:settings/about"
         const val INTERNAL_TEST_BASE_URL = "https://devbrowser.internal/test"
     }
@@ -575,6 +576,12 @@ enum class SettingsCategory(
         subtitle = "Malware & phishing scan, API key, shield status",
         url = BrowserTab.URL_SETTINGS_VIRUSTOTAL
     ),
+    USERSCRIPTS(
+        categoryId = "userscripts",
+        displayName = "Userscripts",
+        subtitle = "Custom user scripts, tampermonkey support, and auto-update",
+        url = BrowserTab.URL_SETTINGS_USERSCRIPTS
+    ),
     ABOUT(
         categoryId = "about",
         displayName = "About DevBrowser",
@@ -586,8 +593,80 @@ enum class SettingsCategory(
         fun fromUrl(rawUrl: String): SettingsCategory? {
             val lower = rawUrl.lowercase(java.util.Locale.US).trim()
             return entries.firstOrNull {
-                lower == it.url || lower == "devbrowser:settings/${it.categoryId}" || lower.endsWith("/${it.categoryId}")
+                lower == it.url || lower.startsWith("${it.url}/") || lower == "devbrowser:settings/${it.categoryId}" || lower.startsWith("devbrowser:settings/${it.categoryId}/") || lower.endsWith("/${it.categoryId}")
             }
         }
     }
+}
+
+data class UserScript(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val code: String,
+    val enabled: Boolean = true,
+    val updateUrl: String = "",
+    val lastUpdated: Long = System.currentTimeMillis(),
+    val matchPatterns: List<String> = listOf("*")
+) {
+    companion object {
+        fun createDefaultTemplate(): UserScript {
+            val templateCode = """// ==UserScript==
+// @name         New Userscript
+// @namespace    https://www.github.com/Green0Field/DevBrowser
+// @version      1.0
+// @description  A custom userscript running in DevBrowser
+// @match        *://*/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    console.log("Userscript running!");
+    // Your code here
+})();"""
+            return UserScript(
+                name = "New Userscript",
+                code = templateCode,
+                enabled = true,
+                updateUrl = "",
+                matchPatterns = listOf("*")
+            )
+        }
+
+        fun parseMetadata(code: String, fallbackName: String): UserScript {
+            var name = fallbackName
+            var updateUrl = ""
+            val matchPatterns = mutableListOf<String>()
+
+            val nameRegex = Regex("@name\\s+(.+)", RegexOption.IGNORE_CASE)
+            val updateRegex = Regex("@updateURL\\s+(.+)", RegexOption.IGNORE_CASE)
+            val matchRegex = Regex("@match\\s+(.+)", RegexOption.IGNORE_CASE)
+
+            code.lineSequence().forEach { line ->
+                nameRegex.find(line)?.let { name = it.groupValues[1].trim() }
+                updateRegex.find(line)?.let { updateUrl = it.groupValues[1].trim() }
+                matchRegex.find(line)?.let { matchPatterns.add(it.groupValues[1].trim()) }
+            }
+
+            if (matchPatterns.isEmpty()) {
+                matchPatterns.add("*")
+            }
+
+            return UserScript(
+                name = name,
+                code = code,
+                enabled = true,
+                updateUrl = updateUrl,
+                matchPatterns = matchPatterns
+            )
+        }
+    }
+}
+
+enum class UserScriptUpdateInterval(val displayName: String, val hours: Int) {
+    NEVER("Never", 0),
+    HOURS_6("Every 6 hours", 6),
+    HOURS_12("Every 12 hours", 12),
+    HOURS_24("Every 24 hours", 24),
+    WEEKLY("Weekly", 168);
 }

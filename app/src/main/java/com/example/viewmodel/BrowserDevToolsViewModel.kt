@@ -37,6 +37,8 @@ import com.example.model.VirusTotalRescanInterval
 import com.example.model.VirusTotalScanResult
 import com.example.model.VirusTotalThreatLevel
 import com.example.model.VirusTotalWarningState
+import com.example.model.UserScript
+import com.example.model.UserScriptUpdateInterval
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -118,7 +120,9 @@ data class BrowserUiState(
     val isScanningVirusTotal: Boolean = false,
     val activeWarningState: VirusTotalWarningState? = null,
     val bypassedWarningUrls: Set<String> = emptySet(),
-    val isSecurityPopupVisible: Boolean = false
+    val isSecurityPopupVisible: Boolean = false,
+    val userScripts: List<UserScript> = listOf(UserScript.createDefaultTemplate()),
+    val userScriptUpdateInterval: UserScriptUpdateInterval = UserScriptUpdateInterval.HOURS_24
 ) {
     val activeTab: BrowserTab
         get() = tabs.find { it.id == activeTabId } ?: tabs.first()
@@ -466,6 +470,8 @@ class BrowserDevToolsViewModel(
             recordHistoryEntry(cleanTitle, displayUrl)
             if (activeUrl != BrowserTab.URL_TEST) {
                 scanUrlIfNeeded(activeUrl)
+                injectUserScriptsIfNeeded(activeUrl)
+                checkForUserscriptUpdates()
             }
         }
 
@@ -1643,5 +1649,134 @@ class BrowserDevToolsViewModel(
             state.copy(virusTotalScanCache = newCache)
         }
         preferencesStore?.saveVirusTotalScanResults(_uiState.value.virusTotalScanCache)
+    }
+
+    // Userscripts Operations
+    fun addUserScript(script: UserScript) {
+        _uiState.update { state ->
+            val updated = state.userScripts + script
+            preferencesStore?.saveUserScripts(updated)
+            state.copy(userScripts = updated)
+        }
+    }
+
+    fun updateUserScript(script: UserScript) {
+        _uiState.update { state ->
+            val updated = state.userScripts.map { if (it.id == script.id) script else it }
+            preferencesStore?.saveUserScripts(updated)
+            state.copy(userScripts = updated)
+        }
+    }
+
+    fun deleteUserScript(id: String) {
+        _uiState.update { state ->
+            val updated = state.userScripts.filter { it.id != id }
+            preferencesStore?.saveUserScripts(updated)
+            state.copy(userScripts = updated)
+        }
+    }
+
+    fun toggleUserScriptEnabled(id: String, enabled: Boolean) {
+        _uiState.update { state ->
+            val updated = state.userScripts.map { if (it.id == id) it.copy(enabled = enabled) else it }
+            preferencesStore?.saveUserScripts(updated)
+            state.copy(userScripts = updated)
+        }
+    }
+
+    fun setUserScriptUpdateInterval(interval: UserScriptUpdateInterval) {
+        _uiState.update { it.copy(userScriptUpdateInterval = interval) }
+        preferencesStore?.saveUserScriptUpdateInterval(interval)
+    }
+
+    fun importUserScriptFromUrl(urlString: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                val url = java.net.URL(urlString)
+                val connection = (url.openConnection() as java.net.HttpURLConnection).apply {
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "DevBrowser-UserscriptClient/1.0")
+                }
+                val code = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val fallbackName = url.path.substringAfterLast('/').ifBlank { "Imported Script" }.removeSuffix(".user.js")
+                val parsed = UserScript.parseMetadata(code, fallbackName)
+                parsed.copy(updateUrl = if (parsed.updateUrl.isBlank()) urlString else parsed.updateUrl)
+            }
+            viewModelScope.launch(Dispatchers.Main) {
+                if (result.isSuccess) {
+                    val script = result.getOrThrow()
+                    addUserScript(script)
+                    onResult(true, "Successfully imported '${script.name}'")
+                } else {
+                    onResult(false, result.exceptionOrNull()?.message ?: "Failed to download userscript")
+                }
+            }
+        }
+    }
+
+    fun injectUserScriptsIfNeeded(url: String) {
+        val state = _uiState.value
+        if (!state.javaScriptEnabled) return
+        val enabledScripts = state.userScripts.filter { it.enabled && it.code.isNotBlank() }
+        if (enabledScripts.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.Main) {
+            val wv = webViewRef ?: return@launch
+            enabledScripts.forEach { script ->
+                val matches = script.matchPatterns.any { pattern ->
+                    pattern == "*" || pattern == "*://*/*" || url.contains(pattern.removePrefix("*").removeSuffix("*"), ignoreCase = true)
+                }
+                if (matches) {
+                    wv.evaluateJavascript(script.code, null)
+                }
+            }
+        }
+    }
+
+    fun checkForUserscriptUpdates() {
+        val state = _uiState.value
+        val intervalHours = state.userScriptUpdateInterval.hours
+        if (intervalHours <= 0) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val intervalMs = intervalHours * 3600_000L
+            val scripts = state.userScripts
+            var updated = false
+            val newScripts = scripts.map { script ->
+                if (script.updateUrl.isNotBlank() && (now - script.lastUpdated > intervalMs)) {
+                    val fetchResult = runCatching {
+                        val url = java.net.URL(script.updateUrl)
+                        val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                            connectTimeout = 8000
+                            readTimeout = 8000
+                            requestMethod = "GET"
+                        }
+                        conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    }
+                    if (fetchResult.isSuccess) {
+                        val newCode = fetchResult.getOrThrow()
+                        val parsed = UserScript.parseMetadata(newCode, script.name)
+                        updated = true
+                        script.copy(
+                            code = newCode,
+                            name = parsed.name.ifBlank { script.name },
+                            lastUpdated = now,
+                            matchPatterns = parsed.matchPatterns
+                        )
+                    } else script
+                } else script
+            }
+            if (updated) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    _uiState.update { st ->
+                        preferencesStore?.saveUserScripts(newScripts)
+                        st.copy(userScripts = newScripts)
+                    }
+                }
+            }
+        }
     }
 }

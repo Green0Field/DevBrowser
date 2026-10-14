@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import com.example.ui.pages.settings.UserscriptEditorPage
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -449,6 +450,14 @@ private fun BrowserViewportContainer(
                 onClearHistory = viewModel::clearBrowsingHistory
             )
 
+            activeUrl.startsWith("devbrowser:settings/userscripts/edit") -> UserscriptEditorPage(
+                currentUrl = uiState.activeTab.url,
+                userScripts = uiState.userScripts,
+                onNavigate = { viewModel.navigateToInput(it) },
+                onAddScript = viewModel::addUserScript,
+                onUpdateScript = viewModel::updateUserScript
+            )
+
             activeUrl == BrowserTab.URL_SETTINGS || activeUrl.startsWith("devbrowser:settings") -> DevBrowserSettingsPage(
                 currentUrl = uiState.activeTab.url,
                 onNavigate = { viewModel.navigateToInput(it) },
@@ -482,7 +491,15 @@ private fun BrowserViewportContainer(
                 onSetVirusTotalEnabled = viewModel::setVirusTotalEnabled,
                 onSaveVirusTotalApiKey = viewModel::setVirusTotalApiKey,
                 onSelectVirusTotalRescanInterval = viewModel::setVirusTotalRescanInterval,
-                onClearVirusTotalScanCache = viewModel::clearVirusTotalScanCache
+                onClearVirusTotalScanCache = viewModel::clearVirusTotalScanCache,
+                userScripts = uiState.userScripts,
+                userScriptUpdateInterval = uiState.userScriptUpdateInterval,
+                onAddUserScript = viewModel::addUserScript,
+                onUpdateUserScript = viewModel::updateUserScript,
+                onDeleteUserScript = viewModel::deleteUserScript,
+                onToggleUserScriptEnabled = viewModel::toggleUserScriptEnabled,
+                onSelectUserScriptUpdateInterval = viewModel::setUserScriptUpdateInterval,
+                onImportUserScriptFromUrl = viewModel::importUserScriptFromUrl
             )
 
             else -> {

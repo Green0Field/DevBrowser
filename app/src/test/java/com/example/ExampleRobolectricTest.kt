@@ -189,6 +189,8 @@ class ExampleRobolectricTest {
         assertEquals(com.example.model.SettingsCategory.SEARCH, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/search"))
         assertEquals(com.example.model.SettingsCategory.DATA, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/data"))
         assertEquals(com.example.model.SettingsCategory.ABOUT, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/about"))
+        assertEquals(com.example.model.SettingsCategory.USERSCRIPTS, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/userscripts"))
+        assertEquals(com.example.model.SettingsCategory.USERSCRIPTS, com.example.model.SettingsCategory.fromUrl("devbrowser:settings/userscripts/edit?file=123"))
         assertEquals(null, com.example.model.SettingsCategory.fromUrl("devbrowser:settings"))
 
         // Add history visits for multiple domains

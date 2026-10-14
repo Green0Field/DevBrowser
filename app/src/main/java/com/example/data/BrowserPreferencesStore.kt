@@ -13,6 +13,8 @@ import com.example.model.ThemeAccentColor
 import com.example.model.VirusTotalRescanInterval
 import com.example.model.VirusTotalScanResult
 import com.example.model.VirusTotalThreatLevel
+import com.example.model.UserScript
+import com.example.model.UserScriptUpdateInterval
 import com.example.viewmodel.BrowserUiState
 import org.json.JSONArray
 import org.json.JSONObject
@@ -49,6 +51,10 @@ class BrowserPreferencesStore(context: Context) {
         val vtInterval = runCatching { VirusTotalRescanInterval.valueOf(vtIntervalName ?: "") }.getOrDefault(VirusTotalRescanInterval.HOURS_24)
         val vtScans = loadVirusTotalScanResults()
 
+        val userScripts = loadUserScripts() ?: baseState.userScripts
+        val scriptIntervalName = prefs.getString(KEY_USER_SCRIPT_UPDATE_INTERVAL, baseState.userScriptUpdateInterval.name)
+        val scriptInterval = runCatching { UserScriptUpdateInterval.valueOf(scriptIntervalName ?: "") }.getOrDefault(UserScriptUpdateInterval.HOURS_24)
+
         return baseState.copy(
             isDarkTheme = isDark,
             isNeonMode = isNeon,
@@ -66,7 +72,9 @@ class BrowserPreferencesStore(context: Context) {
             isVirusTotalEnabled = vtEnabled,
             virusTotalApiKey = vtApiKey,
             virusTotalRescanInterval = vtInterval,
-            virusTotalScanCache = vtScans
+            virusTotalScanCache = vtScans,
+            userScripts = userScripts,
+            userScriptUpdateInterval = scriptInterval
         )
     }
 
@@ -353,6 +361,61 @@ class BrowserPreferencesStore(context: Context) {
         prefs.edit().remove(KEY_VIRUSTOTAL_SCANS_JSON).commit()
     }
 
+    fun saveUserScripts(scripts: List<UserScript>) {
+        val array = JSONArray()
+        scripts.forEach { script ->
+            val obj = JSONObject().apply {
+                put("id", script.id)
+                put("name", script.name)
+                put("code", script.code)
+                put("enabled", script.enabled)
+                put("updateUrl", script.updateUrl)
+                put("lastUpdated", script.lastUpdated)
+                val matches = JSONArray()
+                script.matchPatterns.forEach { matches.put(it) }
+                put("matchPatterns", matches)
+            }
+            array.put(obj)
+        }
+        prefs.edit().putString(KEY_USER_SCRIPTS_JSON, array.toString()).commit()
+    }
+
+    fun loadUserScripts(): List<UserScript>? {
+        val raw = prefs.getString(KEY_USER_SCRIPTS_JSON, null) ?: return null
+        return runCatching {
+            val array = JSONArray(raw)
+            val list = mutableListOf<UserScript>()
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val matches = mutableListOf<String>()
+                val matchesArr = obj.optJSONArray("matchPatterns")
+                if (matchesArr != null) {
+                    for (j in 0 until matchesArr.length()) {
+                        matches.add(matchesArr.optString(j, "*"))
+                    }
+                }
+                if (matches.isEmpty()) matches.add("*")
+
+                list.add(
+                    UserScript(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        name = obj.optString("name", "Unnamed Script"),
+                        code = obj.optString("code", ""),
+                        enabled = obj.optBoolean("enabled", true),
+                        updateUrl = obj.optString("updateUrl", ""),
+                        lastUpdated = obj.optLong("lastUpdated", System.currentTimeMillis()),
+                        matchPatterns = matches
+                    )
+                )
+            }
+            list
+        }.getOrNull()
+    }
+
+    fun saveUserScriptUpdateInterval(interval: UserScriptUpdateInterval) {
+        prefs.edit().putString(KEY_USER_SCRIPT_UPDATE_INTERVAL, interval.name).commit()
+    }
+
     companion object {
         private const val PREFS_NAME = "devbrowser_user_preferences"
         private const val KEY_IS_DARK_THEME = "is_dark_theme"
@@ -372,5 +435,7 @@ class BrowserPreferencesStore(context: Context) {
         private const val KEY_VIRUSTOTAL_API_KEY = "virustotal_api_key"
         private const val KEY_VIRUSTOTAL_RESCAN_INTERVAL = "virustotal_rescan_interval"
         private const val KEY_VIRUSTOTAL_SCANS_JSON = "virustotal_scans_json"
+        private const val KEY_USER_SCRIPTS_JSON = "user_scripts_json"
+        private const val KEY_USER_SCRIPT_UPDATE_INTERVAL = "user_script_update_interval"
     }
 }

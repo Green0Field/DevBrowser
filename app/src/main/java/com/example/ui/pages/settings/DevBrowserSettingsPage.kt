@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
@@ -45,6 +46,8 @@ import com.example.model.SearchEngineItem
 import com.example.model.SettingsCategory
 import com.example.model.ThemeAccentColor
 import com.example.model.VirusTotalRescanInterval
+import com.example.model.UserScript
+import com.example.model.UserScriptUpdateInterval
 
 @Composable
 fun DevBrowserSettingsPage(
@@ -82,6 +85,14 @@ fun DevBrowserSettingsPage(
     onSaveVirusTotalApiKey: (String) -> Unit = {},
     onSelectVirusTotalRescanInterval: (VirusTotalRescanInterval) -> Unit = {},
     onClearVirusTotalScanCache: () -> Unit = {},
+    userScripts: List<UserScript> = emptyList(),
+    userScriptUpdateInterval: UserScriptUpdateInterval = UserScriptUpdateInterval.HOURS_24,
+    onAddUserScript: (UserScript) -> Unit = {},
+    onUpdateUserScript: (UserScript) -> Unit = {},
+    onDeleteUserScript: (String) -> Unit = {},
+    onToggleUserScriptEnabled: (String, Boolean) -> Unit = { _, _ -> },
+    onSelectUserScriptUpdateInterval: (UserScriptUpdateInterval) -> Unit = {},
+    onImportUserScriptFromUrl: (String, (Boolean, String) -> Unit) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -219,7 +230,19 @@ fun DevBrowserSettingsPage(
                     )
                 }
 
-                // 5. About Category Card
+                // 5. Userscripts Category Card
+                item {
+                    val activeCount = userScripts.count { it.enabled }
+                    SettingsCategoryCard(
+                        category = SettingsCategory.USERSCRIPTS,
+                        icon = Icons.Default.Code,
+                        statusPill = "$activeCount active • ${userScripts.size} total",
+                        onClick = { onNavigate(SettingsCategory.USERSCRIPTS.url) },
+                        testTag = "settings_category_card_userscripts"
+                    )
+                }
+
+                // 6. About Category Card
                 item {
                     SettingsCategoryCard(
                         category = SettingsCategory.ABOUT,
@@ -267,6 +290,16 @@ fun DevBrowserSettingsPage(
                             onSaveApiKey = onSaveVirusTotalApiKey,
                             onSelectRescanInterval = onSelectVirusTotalRescanInterval,
                             onClearScanCache = onClearVirusTotalScanCache
+                        )
+
+                        SettingsCategory.USERSCRIPTS -> UserscriptsSettingsSection(
+                            userScripts = userScripts,
+                            updateInterval = userScriptUpdateInterval,
+                            onNavigate = onNavigate,
+                            onDeleteScript = onDeleteUserScript,
+                            onToggleScriptEnabled = onToggleUserScriptEnabled,
+                            onSelectUpdateInterval = onSelectUserScriptUpdateInterval,
+                            onImportFromUrl = onImportUserScriptFromUrl
                         )
 
                         SettingsCategory.ABOUT -> AboutSettingsSection(
