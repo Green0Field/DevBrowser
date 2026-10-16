@@ -101,39 +101,7 @@ jobs:
           } >> CHANGELOG.md
 
           # Update README.md download links
-          python3 - "$VERSION_NO_V" "$IS_PRERELEASE" << 'PYEOF'
-import re, sys
-
-version_no_v = sys.argv[1]
-version_with_v = f"v{version_no_v}"
-is_prerelease = sys.argv[2].lower() == "true"
-link = f"[DevBrowser-{version_no_v}-release.apk](releases/download/{version_with_v}/DevBrowser-{version_no_v}-release.apk)"
-
-try:
-    with open("README.md", "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # Update line under **Latest Release (includes unstable):**
-    content = re.sub(
-        r"(\*\*Latest Release \(includes unstable\):\*\*[^\S\r\n]*\r?\n)[^\r\n]+",
-        r"\g<1>" + link,
-        content
-    )
-
-    # Update line under **Latest Stable Release:** if not a pre-release
-    if not is_prerelease:
-        content = re.sub(
-            r"(\*\*Latest Stable Release:\*\*[^\S\r\n]*\r?\n)[^\r\n]+",
-            r"\g<1>" + link,
-            content
-        )
-
-    with open("README.md", "w", encoding="utf-8") as f:
-        f.write(content)
-    print(f"Updated README.md with link: {link} (is_prerelease={is_prerelease})")
-except Exception as e:
-    print(f"Error updating README.md: {e}")
-PYEOF
+          python3 .github/scripts/update_readme_links.py "$VERSION_NO_V" "$IS_PRERELEASE"
 
           # Commit and push updated CHANGELOG.md and README.md back to the repository
           git config --global user.name "github-actions[bot]"
