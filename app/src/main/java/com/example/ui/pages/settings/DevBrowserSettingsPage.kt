@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
@@ -48,6 +49,7 @@ import com.example.model.ThemeAccentColor
 import com.example.model.VirusTotalRescanInterval
 import com.example.model.UserScript
 import com.example.model.UserScriptUpdateInterval
+import com.example.model.GeminiModelChoice
 
 @Composable
 fun DevBrowserSettingsPage(
@@ -93,6 +95,21 @@ fun DevBrowserSettingsPage(
     onToggleUserScriptEnabled: (String, Boolean) -> Unit = { _, _ -> },
     onSelectUserScriptUpdateInterval: (UserScriptUpdateInterval) -> Unit = {},
     onImportUserScriptFromUrl: (String, (Boolean, String) -> Unit) -> Unit = { _, _ -> },
+    isAiMasterEnabled: Boolean = false,
+    geminiApiKey: String = "",
+    effectiveGeminiApiKey: String = "",
+    isAiProtectionEnabled: Boolean = false,
+    isAiSummaryEnabled: Boolean = true,
+    isAiTranslateEnabled: Boolean = true,
+    aiCachedScansCount: Int = 0,
+    onSetAiMasterEnabled: (Boolean) -> Unit = {},
+    onSaveGeminiApiKey: (String) -> Unit = {},
+    onSetAiProtectionEnabled: (Boolean) -> Unit = {},
+    onSetAiSummaryEnabled: (Boolean) -> Unit = {},
+    onSetAiTranslateEnabled: (Boolean) -> Unit = {},
+    onClearAiScanCache: () -> Unit = {},
+    selectedGeminiModel: GeminiModelChoice = GeminiModelChoice.AUTO,
+    onSelectGeminiModel: (GeminiModelChoice) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -230,7 +247,23 @@ fun DevBrowserSettingsPage(
                     )
                 }
 
-                // 5. Userscripts Category Card
+                // 5. AI Features Category Card
+                item {
+                    val aiStatus = when {
+                        !isAiMasterEnabled -> "Disabled"
+                        geminiApiKey.isBlank() && effectiveGeminiApiKey.isBlank() -> "Key Required"
+                        else -> "Active"
+                    }
+                    SettingsCategoryCard(
+                        category = SettingsCategory.AI_FEATURES,
+                        icon = Icons.Default.AutoAwesome,
+                        statusPill = aiStatus,
+                        onClick = { onNavigate(SettingsCategory.AI_FEATURES.url) },
+                        testTag = "settings_category_card_ai"
+                    )
+                }
+
+                // 6. Userscripts Category Card
                 item {
                     val activeCount = userScripts.count { it.enabled }
                     SettingsCategoryCard(
@@ -242,7 +275,7 @@ fun DevBrowserSettingsPage(
                     )
                 }
 
-                // 6. About Category Card
+                // 7. About Category Card
                 item {
                     SettingsCategoryCard(
                         category = SettingsCategory.ABOUT,
@@ -290,6 +323,25 @@ fun DevBrowserSettingsPage(
                             onSaveApiKey = onSaveVirusTotalApiKey,
                             onSelectRescanInterval = onSelectVirusTotalRescanInterval,
                             onClearScanCache = onClearVirusTotalScanCache
+                        )
+
+                        SettingsCategory.AI_FEATURES -> AiSettingsSection(
+                            isAiMasterEnabled = isAiMasterEnabled,
+                            geminiApiKey = geminiApiKey,
+                            effectiveApiKey = effectiveGeminiApiKey,
+                            isAiProtectionEnabled = isAiProtectionEnabled,
+                            isAiSummaryEnabled = isAiSummaryEnabled,
+                            isAiTranslateEnabled = isAiTranslateEnabled,
+                            isVirusTotalEnabled = isVirusTotalEnabled,
+                            cachedScansCount = aiCachedScansCount,
+                            onSetAiMasterEnabled = onSetAiMasterEnabled,
+                            onSaveGeminiApiKey = onSaveGeminiApiKey,
+                            onSetAiProtectionEnabled = onSetAiProtectionEnabled,
+                            onSetAiSummaryEnabled = onSetAiSummaryEnabled,
+                            onSetAiTranslateEnabled = onSetAiTranslateEnabled,
+                            onClearAiScanCache = onClearAiScanCache,
+                            selectedGeminiModel = selectedGeminiModel,
+                            onSelectGeminiModel = onSelectGeminiModel
                         )
 
                         SettingsCategory.USERSCRIPTS -> UserscriptsSettingsSection(

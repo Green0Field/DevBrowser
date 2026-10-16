@@ -39,6 +39,14 @@ import com.example.model.VirusTotalThreatLevel
 import com.example.model.VirusTotalWarningState
 import com.example.model.UserScript
 import com.example.model.UserScriptUpdateInterval
+import com.example.model.AiProtectionScanResult
+import com.example.model.AiThreatCategory
+import com.example.model.AiChatDialogState
+import com.example.model.ChatMessage
+import com.example.model.GeminiModelChoice
+import com.example.model.WebpageTranslationState
+import com.example.data.GeminiApiClient
+import com.example.BuildConfig
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -122,10 +130,32 @@ data class BrowserUiState(
     val bypassedWarningUrls: Set<String> = emptySet(),
     val isSecurityPopupVisible: Boolean = false,
     val userScripts: List<UserScript> = listOf(UserScript.createDefaultTemplate()),
-    val userScriptUpdateInterval: UserScriptUpdateInterval = UserScriptUpdateInterval.HOURS_24
+    val userScriptUpdateInterval: UserScriptUpdateInterval = UserScriptUpdateInterval.HOURS_24,
+    val isAiMasterEnabled: Boolean = false,
+    val geminiApiKey: String = "",
+    val isAiProtectionEnabled: Boolean = false,
+    val isAiSummaryEnabled: Boolean = true,
+    val isAiTranslateEnabled: Boolean = true,
+    val selectedGeminiModel: GeminiModelChoice = GeminiModelChoice.AUTO,
+    val aiScanCache: Map<String, AiProtectionScanResult> = emptyMap(),
+    val isScanningAiProtection: Boolean = false,
+    val activeAiChatState: AiChatDialogState? = null,
+    val activeTranslationState: WebpageTranslationState? = null
 ) {
     val activeTab: BrowserTab
         get() = tabs.find { it.id == activeTabId } ?: tabs.first()
+
+    val effectiveGeminiApiKey: String
+        get() = if (geminiApiKey.isNotBlank()) {
+            geminiApiKey.trim()
+        } else {
+            runCatching {
+                BuildConfig.GEMINI_API_KEY.takeIf { it.isNotBlank() && it != "MY_GEMINI_API_KEY" }
+            }.getOrNull() ?: ""
+        }
+
+    val isAiProtectionActive: Boolean
+        get() = isAiMasterEnabled && isAiProtectionEnabled && !isVirusTotalEnabled && effectiveGeminiApiKey.isNotBlank()
 
     val currentScanResult: VirusTotalScanResult?
         get() {
@@ -133,6 +163,14 @@ data class BrowserUiState(
             if (url.startsWith("devbrowser:", ignoreCase = true)) return null
             val domain = VirusTotalApiClient.extractDomain(url)
             return virusTotalScanCache[url] ?: virusTotalScanCache[domain]
+        }
+
+    val currentAiScanResult: AiProtectionScanResult?
+        get() {
+            val url = activeTab.url
+            if (url.startsWith("devbrowser:", ignoreCase = true)) return null
+            val domain = VirusTotalApiClient.extractDomain(url)
+            return aiScanCache[url] ?: aiScanCache[domain]
         }
 
     val errorCount: Int
@@ -356,6 +394,7 @@ class BrowserDevToolsViewModel(
             lower == BrowserTab.URL_SETTINGS_SEARCH -> "Settings - Search"
             lower == BrowserTab.URL_SETTINGS_DATA -> "Settings - Data"
             lower == BrowserTab.URL_SETTINGS_VIRUSTOTAL -> "Settings - VirusTotal"
+            lower == BrowserTab.URL_SETTINGS_AI -> "Settings - Ai Features"
             lower == BrowserTab.URL_SETTINGS_ABOUT -> "Settings - About"
             lower.startsWith("devbrowser:settings/") -> "Settings - " + lower.removePrefix("devbrowser:settings/").replaceFirstChar { it.uppercase() }
             lower == BrowserTab.URL_TEST -> "DevBrowser Test Page"
@@ -1580,9 +1619,17 @@ class BrowserDevToolsViewModel(
 
     fun scanUrlIfNeeded(targetUrl: String, forceRescan: Boolean = false) {
         val state = _uiState.value
-        if (!state.isVirusTotalEnabled || state.virusTotalApiKey.isBlank()) return
         if (targetUrl.startsWith("devbrowser:", ignoreCase = true)) return
 
+        if (state.isVirusTotalEnabled && state.virusTotalApiKey.isNotBlank()) {
+            scanUrlWithVirusTotal(targetUrl, forceRescan)
+        } else if (state.isAiProtectionActive) {
+            scanUrlWithAiProtection(targetUrl, forceRescan)
+        }
+    }
+
+    private fun scanUrlWithVirusTotal(targetUrl: String, forceRescan: Boolean = false) {
+        val state = _uiState.value
         val domain = VirusTotalApiClient.extractDomain(targetUrl)
         val cached = state.virusTotalScanCache[targetUrl] ?: state.virusTotalScanCache[domain]
         val intervalMillis = state.virusTotalRescanInterval.durationMillis
@@ -1590,7 +1637,6 @@ class BrowserDevToolsViewModel(
         val isFresh = cached != null && (intervalMillis > 0L && (now - cached.scanTimestamp) < intervalMillis)
 
         if (!forceRescan && isFresh && cached != null) {
-            // Use cached result
             if ((cached.threatLevel == VirusTotalThreatLevel.CAREFUL || cached.threatLevel == VirusTotalThreatLevel.DANGER) &&
                 targetUrl !in state.bypassedWarningUrls && domain !in state.bypassedWarningUrls
             ) {
@@ -1636,6 +1682,83 @@ class BrowserDevToolsViewModel(
         }
     }
 
+    fun scanUrlWithAiProtection(targetUrl: String, forceRescan: Boolean = false) {
+        val state = _uiState.value
+        if (!state.isAiProtectionActive) return
+        if (targetUrl.startsWith("devbrowser:", ignoreCase = true)) return
+
+        val domain = VirusTotalApiClient.extractDomain(targetUrl)
+        val cached = state.aiScanCache[targetUrl] ?: state.aiScanCache[domain]
+
+        if (!forceRescan && cached != null) {
+            if ((cached.category == AiThreatCategory.CAREFUL || cached.category == AiThreatCategory.DANGER) &&
+                targetUrl !in state.bypassedWarningUrls && domain !in state.bypassedWarningUrls
+            ) {
+                _uiState.update {
+                    it.copy(
+                        activeWarningState = VirusTotalWarningState(
+                            targetUrl = targetUrl,
+                            domain = domain,
+                            scanResult = VirusTotalScanResult(
+                                url = targetUrl,
+                                domain = domain,
+                                maliciousCount = if (cached.category == AiThreatCategory.DANGER) 10 else 5,
+                                totalEngines = 10,
+                                threatLevel = cached.category.vtEquivalent,
+                                errorMessage = cached.reasoning
+                            ),
+                            threatLevel = cached.category.vtEquivalent,
+                            isAiProtection = true,
+                            aiReasoning = cached.reasoning
+                        )
+                    )
+                }
+            }
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isScanningAiProtection = true) }
+            val scanResult = GeminiApiClient.analyzeUrlSecurity(
+                apiKey = state.effectiveGeminiApiKey,
+                targetUrl = targetUrl,
+                domain = domain,
+                modelChoice = state.selectedGeminiModel
+            )
+
+            _uiState.update { s ->
+                val newCache = s.aiScanCache + (targetUrl to scanResult) + (domain to scanResult)
+                val isStillOnUrl = s.activeTab.url.equals(targetUrl, ignoreCase = true)
+                val shouldWarn = isStillOnUrl &&
+                    (scanResult.category == AiThreatCategory.CAREFUL || scanResult.category == AiThreatCategory.DANGER) &&
+                    targetUrl !in s.bypassedWarningUrls && domain !in s.bypassedWarningUrls
+
+                s.copy(
+                    aiScanCache = newCache,
+                    isScanningAiProtection = false,
+                    activeWarningState = if (shouldWarn) {
+                        VirusTotalWarningState(
+                            targetUrl = targetUrl,
+                            domain = domain,
+                            scanResult = VirusTotalScanResult(
+                                url = targetUrl,
+                                domain = domain,
+                                maliciousCount = if (scanResult.category == AiThreatCategory.DANGER) 10 else 5,
+                                totalEngines = 10,
+                                threatLevel = scanResult.category.vtEquivalent,
+                                errorMessage = scanResult.reasoning
+                            ),
+                            threatLevel = scanResult.category.vtEquivalent,
+                            isAiProtection = true,
+                            aiReasoning = scanResult.reasoning
+                        )
+                    } else s.activeWarningState
+                )
+            }
+            preferencesStore?.saveAiScanResults(_uiState.value.aiScanCache)
+        }
+    }
+
     fun rescanCurrentUrl() {
         val activeUrl = _uiState.value.activeTab.url
         if (!activeUrl.startsWith("devbrowser:", ignoreCase = true)) {
@@ -1649,6 +1772,388 @@ class BrowserDevToolsViewModel(
             state.copy(virusTotalScanCache = newCache)
         }
         preferencesStore?.saveVirusTotalScanResults(_uiState.value.virusTotalScanCache)
+    }
+
+    fun saveDirectAiScanResult(result: AiProtectionScanResult) {
+        _uiState.update { state ->
+            val newCache = state.aiScanCache + (result.url to result) + (result.domain to result)
+            state.copy(aiScanCache = newCache)
+        }
+        preferencesStore?.saveAiScanResults(_uiState.value.aiScanCache)
+    }
+
+    // AI Operations & Preferences
+    fun setAiMasterEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isAiMasterEnabled = enabled) }
+        preferencesStore?.saveAiMasterEnabled(enabled)
+        val activeUrl = _uiState.value.activeTab.url
+        if (enabled && !activeUrl.startsWith("devbrowser:", ignoreCase = true)) {
+            scanUrlIfNeeded(activeUrl)
+        }
+    }
+
+    fun setGeminiApiKey(apiKey: String) {
+        val trimmed = apiKey.trim()
+        _uiState.update { it.copy(geminiApiKey = trimmed) }
+        preferencesStore?.saveGeminiApiKey(trimmed)
+    }
+
+    fun setAiProtectionEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isAiProtectionEnabled = enabled) }
+        preferencesStore?.saveAiProtectionEnabled(enabled)
+        val activeUrl = _uiState.value.activeTab.url
+        if (enabled && !activeUrl.startsWith("devbrowser:", ignoreCase = true)) {
+            scanUrlIfNeeded(activeUrl)
+        }
+    }
+
+    fun setAiSummaryEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isAiSummaryEnabled = enabled) }
+        preferencesStore?.saveAiSummaryEnabled(enabled)
+    }
+
+    fun setAiTranslateEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isAiTranslateEnabled = enabled) }
+        preferencesStore?.saveAiTranslateEnabled(enabled)
+    }
+
+    fun setGeminiModel(model: GeminiModelChoice) {
+        _uiState.update { it.copy(selectedGeminiModel = model) }
+        preferencesStore?.saveGeminiModel(model)
+    }
+
+    fun clearAiScanCache() {
+        _uiState.update { it.copy(aiScanCache = emptyMap(), activeWarningState = null) }
+        preferencesStore?.clearAiScanResults()
+    }
+
+    // AI Chat Workflow
+    fun triggerAiChat() {
+        val state = _uiState.value
+        val activeTab = state.activeTab
+        val apiKey = state.effectiveGeminiApiKey
+
+        if (!state.isAiMasterEnabled) {
+            _uiState.update {
+                it.copy(
+                    activeAiChatState = AiChatDialogState(
+                        url = activeTab.url,
+                        title = activeTab.title,
+                        errorMessage = "AI Features are currently disabled.\nEnable the master toggle in Settings > Ai Features to use AI Chat."
+                    )
+                )
+            }
+            return
+        }
+
+        if (apiKey.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    activeAiChatState = AiChatDialogState(
+                        url = activeTab.url,
+                        title = activeTab.title,
+                        errorMessage = "Gemini API key is required.\nPlease enter your Gemini API key in Settings > Ai Features."
+                    )
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                activeAiChatState = AiChatDialogState(
+                    url = activeTab.url,
+                    title = activeTab.title,
+                    isGeneratingSuggestions = true
+                )
+            )
+        }
+
+        val extractScript = """
+            (function() {
+                try {
+                    var title = document.title || '';
+                    var bodyText = document.body ? (document.body.innerText || document.body.textContent || '') : '';
+                    return (title + '\n\n' + bodyText).slice(0, 15000);
+                } catch(e) {
+                    return document.title || '';
+                }
+            })();
+        """.trimIndent()
+
+        runJs(extractScript) { rawExtracted ->
+            val cleanText = unescapeJsString(rawExtracted).ifBlank { activeTab.title }
+            viewModelScope.launch(Dispatchers.IO) {
+                val suggestionsResult = GeminiApiClient.generateChatSuggestions(
+                    apiKey = apiKey,
+                    title = activeTab.title,
+                    url = activeTab.url,
+                    webpageContent = cleanText,
+                    modelChoice = state.selectedGeminiModel
+                )
+                val suggestions = suggestionsResult.getOrDefault(listOf("Summarize this webpage", "What is the main topic?", "Extract key takeaways"))
+
+                _uiState.update { s ->
+                    val cur = s.activeAiChatState ?: return@update s
+                    cur.copy(
+                        webpageContent = cleanText,
+                        suggestions = suggestions,
+                        isGeneratingSuggestions = false
+                    ).let { updated -> s.copy(activeAiChatState = updated) }
+                }
+            }
+        }
+    }
+
+    fun updateAiChatQuery(query: String) {
+        _uiState.update { s ->
+            val cur = s.activeAiChatState ?: return@update s
+            s.copy(activeAiChatState = cur.copy(inputQuery = query))
+        }
+    }
+
+    fun sendAiChatMessage(query: String) {
+        val state = _uiState.value
+        val chatState = state.activeAiChatState ?: return
+        val apiKey = state.effectiveGeminiApiKey
+
+        val userMsg = ChatMessage(text = query, isUser = true)
+        val newMessages = chatState.messages + userMsg
+
+        _uiState.update { s ->
+            s.copy(
+                activeAiChatState = chatState.copy(
+                    messages = newMessages,
+                    inputQuery = "",
+                    isLoadingAnswer = true,
+                    errorMessage = null
+                )
+            )
+        }
+
+        val historyPairs = chatState.messages.map { Pair(it.text, it.isUser) }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = GeminiApiClient.askAiChat(
+                apiKey = apiKey,
+                title = chatState.title,
+                url = chatState.url,
+                webpageContent = chatState.webpageContent,
+                chatHistory = historyPairs,
+                userQuery = query,
+                modelChoice = state.selectedGeminiModel
+            )
+
+            _uiState.update { s ->
+                val cur = s.activeAiChatState ?: return@update s
+                result.fold(
+                    onSuccess = { (answer, modelUsed) ->
+                        val modelMsg = ChatMessage(text = answer, isUser = false)
+                        cur.copy(
+                            messages = cur.messages + modelMsg,
+                            modelUsed = modelUsed,
+                            isLoadingAnswer = false,
+                            errorMessage = null
+                        )
+                    },
+                    onFailure = { err ->
+                        cur.copy(
+                            isLoadingAnswer = false,
+                            errorMessage = err.message ?: "Failed to get AI response"
+                        )
+                    }
+                ).let { updated -> s.copy(activeAiChatState = updated) }
+            }
+        }
+    }
+
+    fun dismissAiChat() {
+        _uiState.update { it.copy(activeAiChatState = null) }
+    }
+
+    // AI Translation Workflow
+    fun triggerTranslate() {
+        val state = _uiState.value
+        val activeTab = state.activeTab
+        val apiKey = state.effectiveGeminiApiKey
+
+        if (!state.isAiMasterEnabled) {
+            _uiState.update {
+                it.copy(
+                    activeTranslationState = WebpageTranslationState(
+                        url = activeTab.url,
+                        title = activeTab.title,
+                        showResultDialog = true,
+                        errorMessage = "AI Features are currently disabled.\nEnable the master toggle in Settings > Ai Features to translate webpages."
+                    )
+                )
+            }
+            return
+        }
+
+        if (apiKey.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    activeTranslationState = WebpageTranslationState(
+                        url = activeTab.url,
+                        title = activeTab.title,
+                        showResultDialog = true,
+                        errorMessage = "Gemini API key is required.\nPlease enter your Gemini API key in Settings > Ai Features."
+                    )
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                activeTranslationState = WebpageTranslationState(
+                    url = activeTab.url,
+                    title = activeTab.title,
+                    showLanguageSelector = true,
+                    isLoading = true
+                )
+            )
+        }
+
+        val snippetScript = """
+            (function() {
+                try {
+                    var lang = document.documentElement.lang || document.querySelector('meta[http-equiv="content-language"]')?.content || '';
+                    var body = document.body ? (document.body.innerText || document.body.textContent || '').slice(0, 500) : '';
+                    return JSON.stringify({ lang: lang, text: body });
+                } catch(e) {
+                    return JSON.stringify({ lang: '', text: '' });
+                }
+            })();
+        """.trimIndent()
+
+        runJs(snippetScript) { rawSnippet ->
+            var detected = "English"
+            var sampleText = ""
+            try {
+                val unescaped = unescapeJsString(rawSnippet)
+                val obj = org.json.JSONObject(unescaped)
+                val rawLang = obj.optString("lang", "").trim()
+                sampleText = obj.optString("text", "").trim()
+                if (rawLang.isNotBlank()) {
+                    val loc = Locale.forLanguageTag(rawLang)
+                    if (loc.displayLanguage.isNotBlank()) {
+                        detected = loc.displayLanguage
+                    }
+                }
+            } catch (_: Exception) {}
+
+            viewModelScope.launch(Dispatchers.IO) {
+                if (sampleText.isNotBlank()) {
+                    val aiDetect = GeminiApiClient.detectLanguage(
+                        apiKey = apiKey,
+                        sampleText = sampleText,
+                        modelChoice = state.selectedGeminiModel
+                    )
+                    if (aiDetect.isSuccess && aiDetect.getOrNull()?.isNotBlank() == true) {
+                        detected = aiDetect.getOrNull()!!
+                    }
+                }
+
+                _uiState.update { s ->
+                    val cur = s.activeTranslationState ?: return@update s
+                    val target = if (detected.equals("English", ignoreCase = true)) "Spanish" else "English"
+                    s.copy(
+                        activeTranslationState = cur.copy(
+                            sourceLanguage = detected,
+                            targetLanguage = target,
+                            isLoading = false
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun confirmTranslation(sourceLang: String, targetLang: String) {
+        val state = _uiState.value
+        val activeTab = state.activeTab
+        val apiKey = state.effectiveGeminiApiKey
+
+        _uiState.update { s ->
+            s.copy(
+                activeTranslationState = WebpageTranslationState(
+                    url = activeTab.url,
+                    title = activeTab.title,
+                    sourceLanguage = sourceLang,
+                    targetLanguage = targetLang,
+                    showLanguageSelector = false,
+                    showResultDialog = true,
+                    isLoading = true,
+                    errorMessage = null
+                )
+            )
+        }
+
+        val extractScript = """
+            (function() {
+                try {
+                    var title = document.title || '';
+                    var bodyText = document.body ? (document.body.innerText || document.body.textContent || '') : '';
+                    return (title + '\n\n' + bodyText).slice(0, 15000);
+                } catch(e) {
+                    return document.title || '';
+                }
+            })();
+        """.trimIndent()
+
+        runJs(extractScript) { rawExtracted ->
+            val cleanText = unescapeJsString(rawExtracted).ifBlank { activeTab.title }
+            viewModelScope.launch(Dispatchers.IO) {
+                val result = GeminiApiClient.translateContent(
+                    apiKey = apiKey,
+                    content = cleanText,
+                    sourceLang = sourceLang,
+                    targetLang = targetLang,
+                    modelChoice = state.selectedGeminiModel
+                )
+                _uiState.update { s ->
+                    val cur = s.activeTranslationState ?: return@update s
+                    result.fold(
+                        onSuccess = { (translated, modelUsed) ->
+                            cur.copy(
+                                originalText = cleanText,
+                                translatedText = translated,
+                                modelUsed = modelUsed,
+                                isLoading = false,
+                                errorMessage = null
+                            )
+                        },
+                        onFailure = { err ->
+                            cur.copy(
+                                originalText = cleanText,
+                                errorMessage = err.message ?: "Failed to translate webpage",
+                                isLoading = false
+                            )
+                        }
+                    ).let { updated -> s.copy(activeTranslationState = updated) }
+                }
+            }
+        }
+    }
+
+    fun dismissTranslation() {
+        _uiState.update { it.copy(activeTranslationState = null) }
+    }
+
+    private fun unescapeJsString(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed == "null" || trimmed == "undefined") return ""
+        return try {
+            if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+                org.json.JSONTokener(trimmed).nextValue().toString()
+            } else {
+                trimmed
+            }
+        } catch (_: Exception) {
+            trimmed.removeSurrounding("\"")
+        }
     }
 
     // Userscripts Operations

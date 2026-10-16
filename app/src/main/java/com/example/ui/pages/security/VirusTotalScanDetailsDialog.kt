@@ -44,12 +44,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.material.icons.filled.AutoAwesome
+import com.example.model.AiProtectionScanResult
+import com.example.model.AiThreatCategory
 import com.example.model.VirusTotalRescanInterval
 import com.example.model.VirusTotalScanResult
 import com.example.model.VirusTotalThreatLevel
 import com.example.ui.theme.DevAmber
 import com.example.ui.theme.DevEmerald
 import com.example.ui.theme.DevRose
+import com.example.ui.components.MarkdownText
 
 @Composable
 fun VirusTotalScanDetailsDialog(
@@ -59,8 +63,12 @@ fun VirusTotalScanDetailsDialog(
     hasApiKey: Boolean,
     isScanning: Boolean,
     rescanInterval: VirusTotalRescanInterval,
+    isAiProtectionActive: Boolean = false,
+    aiScanResult: AiProtectionScanResult? = null,
+    isScanningAi: Boolean = false,
     onRescan: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenAiSettings: () -> Unit = onOpenSettings,
     onOpenExternalUrl: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -68,6 +76,13 @@ fun VirusTotalScanDetailsDialog(
     val threat = scanResult?.threatLevel ?: VirusTotalThreatLevel.NOT_SCANNED
 
     val badgeColor = when {
+        isAiProtectionActive -> when {
+            isScanningAi -> cs.primary
+            aiScanResult?.category == AiThreatCategory.DANGER -> DevRose
+            aiScanResult?.category == AiThreatCategory.CAREFUL -> DevAmber
+            aiScanResult?.category == AiThreatCategory.SAFE -> DevEmerald
+            else -> cs.outline
+        }
         !isVirusTotalEnabled || !hasApiKey -> cs.outline
         isScanning -> cs.primary
         threat == VirusTotalThreatLevel.DANGER -> DevRose
@@ -77,6 +92,13 @@ fun VirusTotalScanDetailsDialog(
     }
 
     val statusTitle = when {
+        isAiProtectionActive -> when {
+            isScanningAi -> "Analyzing Site with AI..."
+            aiScanResult?.category == AiThreatCategory.DANGER -> "Danger! High Risk"
+            aiScanResult?.category == AiThreatCategory.CAREFUL -> "Careful: Suspicious"
+            aiScanResult?.category == AiThreatCategory.SAFE -> "Safe Site"
+            else -> "Not Scanned"
+        }
         !isVirusTotalEnabled -> "Scanner Disabled"
         !hasApiKey -> "API Key Missing"
         isScanning -> "Scanning Site..."
@@ -84,6 +106,12 @@ fun VirusTotalScanDetailsDialog(
         threat == VirusTotalThreatLevel.CAREFUL -> "Careful: Suspicious"
         threat == VirusTotalThreatLevel.SAFE -> "Safe Site"
         else -> "Not Scanned"
+    }
+
+    val subtitleText = when {
+        isAiProtectionActive -> "Gemini AI Protection"
+        isVirusTotalEnabled -> "VirusTotal Security"
+        else -> "DevBrowser Shield"
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -148,7 +176,7 @@ fun VirusTotalScanDetailsDialog(
                                 color = cs.onSurface
                             )
                             Text(
-                                text = if (isVirusTotalEnabled) "VirusTotal Security" else "DevBrowser Shield",
+                                text = subtitleText,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = cs.onSurfaceVariant
                             )
@@ -178,7 +206,100 @@ fun VirusTotalScanDetailsDialog(
 
                 HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
 
-                if (!isVirusTotalEnabled || !hasApiKey) {
+                if (isAiProtectionActive) {
+                    // AI Protection Active State
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "AI Category",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = cs.onSurface
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(badgeColor.copy(alpha = 0.15f))
+                                    .border(1.dp, badgeColor, RoundedCornerShape(50))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = aiScanResult?.category?.displayName ?: "Not Scanned",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = badgeColor
+                                )
+                            }
+                        }
+
+                        // AI Reasoning Card
+                        Surface(
+                            color = cs.surfaceVariant.copy(alpha = 0.45f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = cs.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "AI Safety Reasoning",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = cs.primary
+                                    )
+                                }
+                                MarkdownText(
+                                    text = aiScanResult?.reasoning ?: "No reasoning available yet. Site is being evaluated.",
+                                    fontSize = 12.sp,
+                                    lineHeight = 18.sp,
+                                    color = cs.onSurface
+                                )
+                            }
+                        }
+
+                        // Actions: Rescan with AI / AI Settings
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onRescan,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Rescan AI")
+                            }
+
+                            Button(
+                                onClick = {
+                                    onDismiss()
+                                    onOpenAiSettings()
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("AI Settings")
+                            }
+                        }
+                    }
+                } else if (!isVirusTotalEnabled || !hasApiKey) {
                     // Disabled / No Key State
                     Surface(
                         color = cs.primaryContainer.copy(alpha = 0.35f),

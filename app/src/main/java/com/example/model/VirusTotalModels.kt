@@ -71,5 +71,7 @@ data class VirusTotalWarningState(
     val domain: String,
     val scanResult: VirusTotalScanResult,
     val threatLevel: VirusTotalThreatLevel,
-    val showAreYouSureDialog: Boolean = false
+    val showAreYouSureDialog: Boolean = false,
+    val isAiProtection: Boolean = false,
+    val aiReasoning: String? = null
 )

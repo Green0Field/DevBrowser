@@ -32,6 +32,7 @@ data class BrowserTab(
         const val URL_SETTINGS_SEARCH = "devbrowser:settings/search"
         const val URL_SETTINGS_DATA = "devbrowser:settings/data"
         const val URL_SETTINGS_VIRUSTOTAL = "devbrowser:settings/virustotal"
+        const val URL_SETTINGS_AI = "devbrowser:settings/ai"
         const val URL_SETTINGS_USERSCRIPTS = "devbrowser:settings/userscripts"
         const val URL_SETTINGS_ABOUT = "devbrowser:settings/about"
         const val INTERNAL_TEST_BASE_URL = "https://devbrowser.internal/test"
@@ -575,6 +576,12 @@ enum class SettingsCategory(
         displayName = "VirusTotal Security",
         subtitle = "Malware & phishing scan, API key, shield status",
         url = BrowserTab.URL_SETTINGS_VIRUSTOTAL
+    ),
+    AI_FEATURES(
+        categoryId = "ai",
+        displayName = "Ai Features",
+        subtitle = "Master switch, Gemini API key, AI Protection, Webpage Summary & Translate",
+        url = BrowserTab.URL_SETTINGS_AI
     ),
     USERSCRIPTS(
         categoryId = "userscripts",

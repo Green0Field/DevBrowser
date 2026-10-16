@@ -13,6 +13,8 @@ import com.example.model.SettingsCategory
 import com.example.model.VirusTotalRescanInterval
 import com.example.model.VirusTotalScanResult
 import com.example.model.VirusTotalThreatLevel
+import com.example.model.AiThreatCategory
+import com.example.model.AiProtectionScanResult
 import com.example.viewmodel.BrowserDevToolsViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -297,5 +299,93 @@ class ExampleRobolectricTest {
         viewModel.saveDirectScanResult(safeScan)
         viewModel.navigateToInput("https://safe-test.example.com")
         assertNull(viewModel.uiState.value.activeWarningState)
+    }
+
+    @Test
+    fun `ai features master toggle, key config, ai protection, and workflows`() {
+        // 1. SettingsCategory and URL routing
+        assertEquals("devbrowser:settings/ai", BrowserTab.URL_SETTINGS_AI)
+        assertEquals(SettingsCategory.AI_FEATURES, SettingsCategory.fromUrl("devbrowser:settings/ai"))
+        assertEquals(SettingsCategory.AI_FEATURES, SettingsCategory.fromUrl("devbrowser:settings/ai/"))
+
+        // 2. Threat category mapping
+        assertEquals(AiThreatCategory.SAFE, AiThreatCategory.fromString("SAFE"))
+        assertEquals(AiThreatCategory.CAREFUL, AiThreatCategory.fromString("CAREFUL"))
+        assertEquals(AiThreatCategory.DANGER, AiThreatCategory.fromString("DANGER"))
+        assertEquals(AiThreatCategory.DANGER, AiThreatCategory.fromString("MALICIOUS"))
+        assertEquals(VirusTotalThreatLevel.SAFE, AiThreatCategory.SAFE.vtEquivalent)
+        assertEquals(VirusTotalThreatLevel.CAREFUL, AiThreatCategory.CAREFUL.vtEquivalent)
+        assertEquals(VirusTotalThreatLevel.DANGER, AiThreatCategory.DANGER.vtEquivalent)
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = BrowserDevToolsViewModel(context)
+        viewModel.attachPreferencesIfNeeded(context)
+
+        // 3. Default state: AI features disabled by default
+        assertFalse(viewModel.uiState.value.isAiMasterEnabled)
+        assertFalse(viewModel.uiState.value.isAiProtectionActive)
+
+        // Sub-feature toggle saved even when master toggle is off
+        viewModel.setAiProtectionEnabled(true)
+        assertTrue(viewModel.uiState.value.isAiProtectionEnabled)
+        assertFalse("AI Protection must NOT be active while master switch is off", viewModel.uiState.value.isAiProtectionActive)
+
+        // Configure Gemini API key
+        viewModel.setGeminiApiKey("AIzaSy-Test-Gemini-Key")
+        assertEquals("AIzaSy-Test-Gemini-Key", viewModel.uiState.value.geminiApiKey)
+        assertEquals("AIzaSy-Test-Gemini-Key", viewModel.uiState.value.effectiveGeminiApiKey)
+
+        // Turn on master switch with VirusTotal off: AI Protection becomes active
+        viewModel.setVirusTotalEnabled(false)
+        viewModel.setAiMasterEnabled(true)
+        assertTrue(viewModel.uiState.value.isAiMasterEnabled)
+        assertTrue(viewModel.uiState.value.isAiProtectionActive)
+
+        // Grayed out / inactive when VirusTotal is enabled
+        viewModel.setVirusTotalEnabled(true)
+        assertFalse("AI Protection must be grayed out/inactive when VirusTotal is enabled", viewModel.uiState.value.isAiProtectionActive)
+        viewModel.setVirusTotalEnabled(false)
+        assertTrue(viewModel.uiState.value.isAiProtectionActive)
+
+        // 4. AI Protection navigation interception with cached scans
+        val dangerAiScan = AiProtectionScanResult(
+            url = "https://ai-phish-danger.example.com",
+            domain = "ai-phish-danger.example.com",
+            category = AiThreatCategory.DANGER,
+            reasoning = "Gemini identified active credential harvesting and spoofing patterns."
+        )
+        viewModel.saveDirectAiScanResult(dangerAiScan)
+
+        viewModel.navigateToInput("https://ai-phish-danger.example.com")
+        val warning = viewModel.uiState.value.activeWarningState
+        assertNotNull("AI Protection must intercept danger site", warning)
+        assertEquals(VirusTotalThreatLevel.DANGER, warning?.threatLevel)
+        assertTrue(warning?.isAiProtection == true)
+        assertEquals("Gemini identified active credential harvesting and spoofing patterns.", warning?.aiReasoning)
+
+        // Safe AI site should not trigger warning
+        val safeAiScan = AiProtectionScanResult(
+            url = "https://ai-safe.example.com",
+            domain = "ai-safe.example.com",
+            category = AiThreatCategory.SAFE,
+            reasoning = "Legitimate verified technology platform."
+        )
+        viewModel.saveDirectAiScanResult(safeAiScan)
+        viewModel.navigateToInput("https://ai-safe.example.com")
+        assertNull("Safe AI site should not trigger warning", viewModel.uiState.value.activeWarningState)
+
+        // 5. Workflows: AI Chat and Translate actions
+        viewModel.setAiMasterEnabled(false)
+        viewModel.triggerAiChat()
+        assertNotNull(viewModel.uiState.value.activeAiChatState)
+        assertTrue(viewModel.uiState.value.activeAiChatState?.errorMessage?.contains("disabled", ignoreCase = true) == true)
+        viewModel.dismissAiChat()
+        assertNull(viewModel.uiState.value.activeAiChatState)
+
+        viewModel.triggerTranslate()
+        assertNotNull(viewModel.uiState.value.activeTranslationState)
+        assertTrue(viewModel.uiState.value.activeTranslationState?.errorMessage?.contains("disabled", ignoreCase = true) == true)
+        viewModel.dismissTranslation()
+        assertNull(viewModel.uiState.value.activeTranslationState)
     }
 }

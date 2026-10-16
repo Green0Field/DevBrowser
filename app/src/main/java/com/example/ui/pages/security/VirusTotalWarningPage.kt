@@ -58,6 +58,7 @@ import com.example.model.VirusTotalThreatLevel
 import com.example.model.VirusTotalWarningState
 import com.example.ui.theme.DevAmber
 import com.example.ui.theme.DevRose
+import com.example.ui.components.MarkdownText
 
 @Composable
 fun VirusTotalWarningPage(
@@ -133,10 +134,18 @@ fun VirusTotalWarningPage(
 
             // Subtitle
             Text(
-                text = if (isDanger) {
-                    "VirusTotal detected 9 or more security engines flagging this website as malicious. Visiting this page could compromise your security."
+                text = if (warningState.isAiProtection) {
+                    if (isDanger) {
+                        "Gemini AI Protection flagged this website as high risk. Visiting this page could compromise your security."
+                    } else {
+                        "Gemini AI Protection categorized this website as suspicious. Proceed with caution."
+                    }
                 } else {
-                    "VirusTotal flagged this website with 4 to 8 security vendor warnings. Proceed with caution."
+                    if (isDanger) {
+                        "VirusTotal detected 9 or more security engines flagging this website as malicious. Visiting this page could compromise your security."
+                    } else {
+                        "VirusTotal flagged this website with 4 to 8 security vendor warnings. Proceed with caution."
+                    }
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.85f),
@@ -163,7 +172,7 @@ fun VirusTotalWarningPage(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "VirusTotal Scan Score",
+                            text = if (warningState.isAiProtection) "AI Security Assessment" else "VirusTotal Scan Score",
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = Color.White
                         )
@@ -175,7 +184,11 @@ fun VirusTotalWarningPage(
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "${warningState.scanResult.maliciousCount} / ${warningState.scanResult.totalEngines.coerceAtLeast(1)} Malicious",
+                                text = if (warningState.isAiProtection) {
+                                    warningState.threatLevel.displayName
+                                } else {
+                                    "${warningState.scanResult.maliciousCount} / ${warningState.scanResult.totalEngines.coerceAtLeast(1)} Malicious"
+                                },
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = primaryColor
                             )
@@ -198,17 +211,42 @@ fun VirusTotalWarningPage(
                         )
                     }
 
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+                    if (warningState.isAiProtection) {
+                        // AI Reasoning Card
+                        Surface(
+                            color = primaryColor.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "AI Safety Reasoning",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = primaryColor
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                MarkdownText(
+                                    text = warningState.aiReasoning ?: "Potential security threat or deceptive patterns identified by AI analysis.",
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp,
+                                    color = Color.White.copy(alpha = 0.9f)
+                                )
+                            }
+                        }
+                    } else {
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
 
-                    // Stats Grid
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        StatPill("Malicious", warningState.scanResult.maliciousCount.toString(), primaryColor)
-                        StatPill("Suspicious", warningState.scanResult.suspiciousCount.toString(), DevAmber)
-                        StatPill("Harmless", warningState.scanResult.harmlessCount.toString(), Color(0xFF10B981))
-                        StatPill("Undetected", warningState.scanResult.undetectedCount.toString(), Color.LightGray)
+                        // Stats Grid
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            StatPill("Malicious", warningState.scanResult.maliciousCount.toString(), primaryColor)
+                            StatPill("Suspicious", warningState.scanResult.suspiciousCount.toString(), DevAmber)
+                            StatPill("Harmless", warningState.scanResult.harmlessCount.toString(), Color(0xFF10B981))
+                            StatPill("Undetected", warningState.scanResult.undetectedCount.toString(), Color.LightGray)
+                        }
                     }
                 }
             }

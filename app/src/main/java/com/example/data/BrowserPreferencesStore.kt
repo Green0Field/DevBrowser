@@ -15,6 +15,9 @@ import com.example.model.VirusTotalScanResult
 import com.example.model.VirusTotalThreatLevel
 import com.example.model.UserScript
 import com.example.model.UserScriptUpdateInterval
+import com.example.model.AiProtectionScanResult
+import com.example.model.AiThreatCategory
+import com.example.model.GeminiModelChoice
 import com.example.viewmodel.BrowserUiState
 import org.json.JSONArray
 import org.json.JSONObject
@@ -55,6 +58,15 @@ class BrowserPreferencesStore(context: Context) {
         val scriptIntervalName = prefs.getString(KEY_USER_SCRIPT_UPDATE_INTERVAL, baseState.userScriptUpdateInterval.name)
         val scriptInterval = runCatching { UserScriptUpdateInterval.valueOf(scriptIntervalName ?: "") }.getOrDefault(UserScriptUpdateInterval.HOURS_24)
 
+        val aiMasterEnabled = prefs.getBoolean(KEY_AI_MASTER_ENABLED, baseState.isAiMasterEnabled)
+        val geminiKey = prefs.getString(KEY_GEMINI_API_KEY, baseState.geminiApiKey) ?: ""
+        val geminiModelId = prefs.getString(KEY_GEMINI_MODEL, baseState.selectedGeminiModel.id)
+        val selectedModel = GeminiModelChoice.fromId(geminiModelId)
+        val aiProtectionEnabled = prefs.getBoolean(KEY_AI_PROTECTION_ENABLED, baseState.isAiProtectionEnabled)
+        val aiSummaryEnabled = prefs.getBoolean(KEY_AI_SUMMARY_ENABLED, baseState.isAiSummaryEnabled)
+        val aiTranslateEnabled = prefs.getBoolean(KEY_AI_TRANSLATE_ENABLED, baseState.isAiTranslateEnabled)
+        val aiScans = loadAiScanResults()
+
         return baseState.copy(
             isDarkTheme = isDark,
             isNeonMode = isNeon,
@@ -74,7 +86,14 @@ class BrowserPreferencesStore(context: Context) {
             virusTotalRescanInterval = vtInterval,
             virusTotalScanCache = vtScans,
             userScripts = userScripts,
-            userScriptUpdateInterval = scriptInterval
+            userScriptUpdateInterval = scriptInterval,
+            isAiMasterEnabled = aiMasterEnabled,
+            geminiApiKey = geminiKey,
+            selectedGeminiModel = selectedModel,
+            isAiProtectionEnabled = aiProtectionEnabled,
+            isAiSummaryEnabled = aiSummaryEnabled,
+            isAiTranslateEnabled = aiTranslateEnabled,
+            aiScanCache = aiScans
         )
     }
 
@@ -416,6 +435,74 @@ class BrowserPreferencesStore(context: Context) {
         prefs.edit().putString(KEY_USER_SCRIPT_UPDATE_INTERVAL, interval.name).commit()
     }
 
+    fun saveAiMasterEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AI_MASTER_ENABLED, enabled).commit()
+    }
+
+    fun saveGeminiApiKey(key: String) {
+        prefs.edit().putString(KEY_GEMINI_API_KEY, key.trim()).commit()
+    }
+
+    fun saveAiProtectionEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AI_PROTECTION_ENABLED, enabled).commit()
+    }
+
+    fun saveAiSummaryEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AI_SUMMARY_ENABLED, enabled).commit()
+    }
+
+    fun saveAiTranslateEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AI_TRANSLATE_ENABLED, enabled).commit()
+    }
+
+    fun saveGeminiModel(model: GeminiModelChoice) {
+        prefs.edit().putString(KEY_GEMINI_MODEL, model.id).commit()
+    }
+
+    fun saveAiScanResults(scans: Map<String, AiProtectionScanResult>) {
+        val root = JSONObject()
+        scans.forEach { (key, scan) ->
+            val obj = JSONObject().apply {
+                put("url", scan.url)
+                put("domain", scan.domain)
+                put("category", scan.category.name)
+                put("reasoning", scan.reasoning)
+                scan.modelUsed?.let { put("modelUsed", it) }
+                put("timestamp", scan.timestamp)
+            }
+            root.put(key, obj)
+        }
+        prefs.edit().putString(KEY_AI_SCANS_JSON, root.toString()).commit()
+    }
+
+    fun loadAiScanResults(): Map<String, AiProtectionScanResult> {
+        val raw = prefs.getString(KEY_AI_SCANS_JSON, null) ?: return emptyMap()
+        return runCatching {
+            val root = JSONObject(raw)
+            val map = mutableMapOf<String, AiProtectionScanResult>()
+            val keys = root.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val obj = root.optJSONObject(key) ?: continue
+                val catName = obj.optString("category", AiThreatCategory.SAFE.name)
+                val cat = runCatching { AiThreatCategory.valueOf(catName) }.getOrDefault(AiThreatCategory.SAFE)
+                map[key] = AiProtectionScanResult(
+                    url = obj.optString("url", key),
+                    domain = obj.optString("domain", ""),
+                    category = cat,
+                    reasoning = obj.optString("reasoning", ""),
+                    modelUsed = if (obj.has("modelUsed")) obj.optString("modelUsed") else null,
+                    timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                )
+            }
+            map
+        }.getOrDefault(emptyMap())
+    }
+
+    fun clearAiScanResults() {
+        prefs.edit().remove(KEY_AI_SCANS_JSON).commit()
+    }
+
     companion object {
         private const val PREFS_NAME = "devbrowser_user_preferences"
         private const val KEY_IS_DARK_THEME = "is_dark_theme"
@@ -437,5 +524,12 @@ class BrowserPreferencesStore(context: Context) {
         private const val KEY_VIRUSTOTAL_SCANS_JSON = "virustotal_scans_json"
         private const val KEY_USER_SCRIPTS_JSON = "user_scripts_json"
         private const val KEY_USER_SCRIPT_UPDATE_INTERVAL = "user_script_update_interval"
+        private const val KEY_AI_MASTER_ENABLED = "ai_master_enabled"
+        private const val KEY_GEMINI_API_KEY = "gemini_api_key"
+        private const val KEY_GEMINI_MODEL = "gemini_model"
+        private const val KEY_AI_PROTECTION_ENABLED = "ai_protection_enabled"
+        private const val KEY_AI_SUMMARY_ENABLED = "ai_summary_enabled"
+        private const val KEY_AI_TRANSLATE_ENABLED = "ai_translate_enabled"
+        private const val KEY_AI_SCANS_JSON = "ai_scans_json"
     }
 }

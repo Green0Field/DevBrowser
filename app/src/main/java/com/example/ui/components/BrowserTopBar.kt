@@ -80,6 +80,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.BrowserTab
 import com.example.model.DeviceViewportPreset
+import com.example.model.AiProtectionScanResult
+import com.example.model.AiThreatCategory
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Translate
 import com.example.ui.theme.DevAmber
 import com.example.ui.theme.DevEmerald
 import com.example.ui.theme.DevRose
@@ -116,7 +120,15 @@ fun BrowserTopBar(
     virusTotalScanResult: VirusTotalScanResult? = null,
     isVirusTotalEnabled: Boolean = false,
     isScanningVirusTotal: Boolean = false,
+    isAiProtectionActive: Boolean = false,
+    aiScanResult: AiProtectionScanResult? = null,
+    isScanningAi: Boolean = false,
+    onTriggerAiChat: () -> Unit = {},
+    onTriggerTranslate: () -> Unit = {},
     onOpenSecurityPopup: () -> Unit = {},
+    isAiMasterEnabled: Boolean = false,
+    isAiSummaryEnabled: Boolean = true,
+    isAiTranslateEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var urlInput by remember(activeTab.url) { mutableStateOf(activeTab.url) }
@@ -170,21 +182,27 @@ fun BrowserTopBar(
                     val isInternal = activeTab.url.startsWith("devbrowser:", ignoreCase = true)
                     val isSecure = activeTab.url.startsWith("https://")
                     val threat = virusTotalScanResult?.threatLevel
+                    val aiCategory = aiScanResult?.category
 
                     val shieldTint = when {
                         isInternal -> cs.primary
-                        isScanningVirusTotal -> cs.primary
-                        threat == VirusTotalThreatLevel.DANGER -> DevRose
-                        threat == VirusTotalThreatLevel.CAREFUL -> DevAmber
-                        threat == VirusTotalThreatLevel.SAFE -> DevEmerald
+                        isScanningVirusTotal || isScanningAi -> cs.primary
+                        isVirusTotalEnabled && threat == VirusTotalThreatLevel.DANGER -> DevRose
+                        isVirusTotalEnabled && threat == VirusTotalThreatLevel.CAREFUL -> DevAmber
+                        isVirusTotalEnabled && threat == VirusTotalThreatLevel.SAFE -> DevEmerald
+                        isAiProtectionActive && aiCategory == AiThreatCategory.DANGER -> DevRose
+                        isAiProtectionActive && aiCategory == AiThreatCategory.CAREFUL -> DevAmber
+                        isAiProtectionActive && aiCategory == AiThreatCategory.SAFE -> DevEmerald
                         isSecure -> DevEmerald
                         else -> DevAmber
                     }
 
                     val shieldIcon = when {
                         isInternal -> Icons.Default.Science
-                        threat == VirusTotalThreatLevel.DANGER -> Icons.Default.Dangerous
-                        threat == VirusTotalThreatLevel.CAREFUL -> Icons.Default.WarningAmber
+                        isVirusTotalEnabled && threat == VirusTotalThreatLevel.DANGER -> Icons.Default.Dangerous
+                        isVirusTotalEnabled && threat == VirusTotalThreatLevel.CAREFUL -> Icons.Default.WarningAmber
+                        isAiProtectionActive && aiCategory == AiThreatCategory.DANGER -> Icons.Default.Dangerous
+                        isAiProtectionActive && aiCategory == AiThreatCategory.CAREFUL -> Icons.Default.WarningAmber
                         else -> Icons.Default.Shield
                     }
 
@@ -516,6 +534,42 @@ fun BrowserTopBar(
                                 onToggleDesktopSite()
                             }
                         )
+
+                        // AI Chat and Translate (Only shown if Master switch is ON and respective feature is enabled)
+                        val showChat = isAiMasterEnabled && isAiSummaryEnabled
+                        val showTranslate = isAiMasterEnabled && isAiTranslateEnabled
+
+                        if (showChat || showTranslate) {
+                            HorizontalDivider(color = cs.outlineVariant)
+
+                            if (showChat) {
+                                DropdownMenuItem(
+                                    text = { Text("Ai Chat", style = MaterialTheme.typography.bodyMedium) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                                    },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onTriggerAiChat()
+                                    },
+                                    modifier = Modifier.testTag("menu_ai_chat")
+                                )
+                            }
+
+                            if (showTranslate) {
+                                DropdownMenuItem(
+                                    text = { Text("Translate", style = MaterialTheme.typography.bodyMedium) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Translate, contentDescription = null, tint = cs.secondary, modifier = Modifier.size(18.dp))
+                                    },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onTriggerTranslate()
+                                    },
+                                    modifier = Modifier.testTag("menu_ai_translate")
+                                )
+                            }
+                        }
 
                         HorizontalDivider(color = cs.outlineVariant)
 

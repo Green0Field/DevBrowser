@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import com.example.ui.pages.settings.UserscriptEditorPage
+import com.example.ui.components.AiChatDialog
+import com.example.ui.components.AiLanguageSelectorDialog
+import com.example.ui.components.AiTranslationResultDialog
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -231,7 +234,15 @@ fun BrowserDevToolsScreen(
                     virusTotalScanResult = uiState.currentScanResult,
                     isVirusTotalEnabled = uiState.isVirusTotalEnabled,
                     isScanningVirusTotal = uiState.isScanningVirusTotal,
-                    onOpenSecurityPopup = { viewModel.setSecurityPopupVisible(true) }
+                    isAiProtectionActive = uiState.isAiProtectionActive,
+                    aiScanResult = uiState.currentAiScanResult,
+                    isScanningAi = uiState.isScanningAiProtection,
+                    onTriggerAiChat = viewModel::triggerAiChat,
+                    onTriggerTranslate = viewModel::triggerTranslate,
+                    onOpenSecurityPopup = { viewModel.setSecurityPopupVisible(true) },
+                    isAiMasterEnabled = uiState.isAiMasterEnabled,
+                    isAiSummaryEnabled = uiState.isAiSummaryEnabled,
+                    isAiTranslateEnabled = uiState.isAiTranslateEnabled
                 )
 
                 // Main Content Area: Adaptive Split between Browser Viewport and Chrome DevTools Dock
@@ -368,7 +379,7 @@ fun BrowserDevToolsScreen(
                 )
             }
 
-            // VirusTotal Shield Scan Results Dialog
+            // Security Shield Scan Results Dialog (VirusTotal + AI Protection)
             if (uiState.isSecurityPopupVisible) {
                 VirusTotalScanDetailsDialog(
                     currentUrl = uiState.activeTab.url,
@@ -377,14 +388,59 @@ fun BrowserDevToolsScreen(
                     hasApiKey = uiState.virusTotalApiKey.isNotBlank(),
                     isScanning = uiState.isScanningVirusTotal,
                     rescanInterval = uiState.virusTotalRescanInterval,
+                    isAiProtectionActive = uiState.isAiProtectionActive,
+                    aiScanResult = uiState.currentAiScanResult,
+                    isScanningAi = uiState.isScanningAiProtection,
                     onRescan = viewModel::rescanCurrentUrl,
                     onOpenSettings = {
                         viewModel.setSecurityPopupVisible(false)
                         viewModel.navigateToInput(BrowserTab.URL_SETTINGS_VIRUSTOTAL)
                     },
+                    onOpenAiSettings = {
+                        viewModel.setSecurityPopupVisible(false)
+                        viewModel.navigateToInput(BrowserTab.URL_SETTINGS_AI)
+                    },
                     onOpenExternalUrl = { viewModel.navigateToInput(it) },
                     onDismiss = { viewModel.setSecurityPopupVisible(false) }
                 )
+            }
+
+            // AI Chat Dialog
+            val aiChatState = uiState.activeAiChatState
+            if (aiChatState != null) {
+                AiChatDialog(
+                    chatState = aiChatState,
+                    onQueryChange = viewModel::updateAiChatQuery,
+                    onSendMessage = viewModel::sendAiChatMessage,
+                    onSuggestionClick = { suggestion ->
+                        viewModel.updateAiChatQuery(suggestion)
+                    },
+                    onRefreshSuggestions = viewModel::triggerAiChat,
+                    onDismiss = viewModel::dismissAiChat
+                )
+            }
+
+            // AI Webpage Translation Dialogs
+            val translationState = uiState.activeTranslationState
+            if (translationState != null) {
+                if (translationState.showLanguageSelector) {
+                    AiLanguageSelectorDialog(
+                        translationState = translationState,
+                        onConfirm = viewModel::confirmTranslation,
+                        onDismiss = viewModel::dismissTranslation
+                    )
+                } else if (translationState.showResultDialog) {
+                    AiTranslationResultDialog(
+                        translationState = translationState,
+                        onRetry = {
+                            viewModel.confirmTranslation(
+                                translationState.sourceLanguage,
+                                translationState.targetLanguage
+                            )
+                        },
+                        onDismiss = viewModel::dismissTranslation
+                    )
+                }
             }
         }
     }
@@ -499,7 +555,22 @@ private fun BrowserViewportContainer(
                 onDeleteUserScript = viewModel::deleteUserScript,
                 onToggleUserScriptEnabled = viewModel::toggleUserScriptEnabled,
                 onSelectUserScriptUpdateInterval = viewModel::setUserScriptUpdateInterval,
-                onImportUserScriptFromUrl = viewModel::importUserScriptFromUrl
+                onImportUserScriptFromUrl = viewModel::importUserScriptFromUrl,
+                isAiMasterEnabled = uiState.isAiMasterEnabled,
+                geminiApiKey = uiState.geminiApiKey,
+                effectiveGeminiApiKey = uiState.effectiveGeminiApiKey,
+                isAiProtectionEnabled = uiState.isAiProtectionEnabled,
+                isAiSummaryEnabled = uiState.isAiSummaryEnabled,
+                isAiTranslateEnabled = uiState.isAiTranslateEnabled,
+                aiCachedScansCount = uiState.aiScanCache.size,
+                onSetAiMasterEnabled = viewModel::setAiMasterEnabled,
+                onSaveGeminiApiKey = viewModel::setGeminiApiKey,
+                onSetAiProtectionEnabled = viewModel::setAiProtectionEnabled,
+                onSetAiSummaryEnabled = viewModel::setAiSummaryEnabled,
+                onSetAiTranslateEnabled = viewModel::setAiTranslateEnabled,
+                onClearAiScanCache = viewModel::clearAiScanCache,
+                selectedGeminiModel = uiState.selectedGeminiModel,
+                onSelectGeminiModel = viewModel::setGeminiModel
             )
 
             else -> {
