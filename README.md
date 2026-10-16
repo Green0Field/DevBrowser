@@ -22,4 +22,4 @@ Changelog available at [CHANGELOG.md](CHANGELOG.md)
 No available stable release
 
 **Latest Release (includes unstable):**
-[DevBrowser-0.1-release.apk](releases/download/v0.1/DevBrowser-0.1-release.apk)
+[DevBrowser-0.1-release.apk](../../releases/download/v0.1/DevBrowser-0.1-release.apk)
