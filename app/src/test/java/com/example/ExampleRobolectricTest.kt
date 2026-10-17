@@ -15,6 +15,9 @@ import com.example.model.VirusTotalScanResult
 import com.example.model.VirusTotalThreatLevel
 import com.example.model.AiThreatCategory
 import com.example.model.AiProtectionScanResult
+import com.example.model.WebPageErrorType
+import com.example.ui.pages.error.resolveWebPageError
+import com.example.ui.pages.debug.parseDebugQueryParams
 import com.example.viewmodel.BrowserDevToolsViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -387,5 +390,140 @@ class ExampleRobolectricTest {
         assertTrue(viewModel.uiState.value.activeTranslationState?.errorMessage?.contains("disabled", ignoreCase = true) == true)
         viewModel.dismissTranslation()
         assertNull(viewModel.uiState.value.activeTranslationState)
+    }
+
+    @Test
+    fun `custom webview error pages handle website does not exist and unexpected errors`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = BrowserDevToolsViewModel()
+
+        // 1. Error mapping tests
+        val dnsError = resolveWebPageError(
+            context = context,
+            failingUrl = "https://nonexistent-domain-xyz123.com",
+            errorCode = -2,
+            description = "net::ERR_NAME_NOT_RESOLVED"
+        )
+        // With internet available (or mocked), -2 maps to WEBSITE_DOES_NOT_EXIST
+        assertTrue(
+            dnsError.errorType == WebPageErrorType.WEBSITE_DOES_NOT_EXIST ||
+            dnsError.errorType == WebPageErrorType.NO_INTERNET
+        )
+
+        val timeoutError = resolveWebPageError(
+            context = context,
+            failingUrl = "https://slow-domain.com",
+            errorCode = -8,
+            description = "net::ERR_CONNECTION_TIMED_OUT"
+        )
+        assertTrue(
+            timeoutError.errorType == WebPageErrorType.CONNECTION_TIMED_OUT ||
+            timeoutError.errorType == WebPageErrorType.NO_INTERNET
+        )
+
+        // Unexpected error mapping with unknown code
+        val unknownError = resolveWebPageError(
+            context = context,
+            failingUrl = "https://custom-error-site.org",
+            errorCode = -999,
+            description = "net::ERR_CUSTOM_FAILURE"
+        )
+        assertTrue(
+            unknownError.errorType == WebPageErrorType.UNEXPECTED_ERROR ||
+            unknownError.errorType == WebPageErrorType.NO_INTERNET
+        )
+        assertEquals(-999, unknownError.errorCode)
+
+        // 2. ViewModel onWebPageError lifecycle test
+        viewModel.onWebPageError(
+            failingUrl = "https://nonexistent-domain-xyz123.com",
+            errorCode = -2,
+            description = "net::ERR_NAME_NOT_RESOLVED",
+            context = context
+        )
+
+        val activeTab = viewModel.uiState.value.activeTab
+        assertNotNull("Tab must have an active error state", activeTab.errorState)
+        assertEquals("https://nonexistent-domain-xyz123.com", activeTab.errorState?.url)
+
+        // 3. retryAfterError clears error state
+        viewModel.retryAfterError()
+        assertNull("retryAfterError must clear error state", viewModel.uiState.value.activeTab.errorState)
+
+        // 4. navigateToInput clears error state
+        viewModel.onWebPageError(
+            failingUrl = "https://another-broken.com",
+            errorCode = -999,
+            description = "weird error",
+            context = context
+        )
+        assertNotNull(viewModel.uiState.value.activeTab.errorState)
+        viewModel.navigateToInput(BrowserTab.URL_HOME)
+        assertNull("navigateToInput must clear error state", viewModel.uiState.value.activeTab.errorState)
+        assertEquals(BrowserTab.URL_HOME, viewModel.uiState.value.activeTab.url)
+    }
+
+    @Test
+    fun `debug pages navigation and query parameters parsing`() {
+        val viewModel = BrowserDevToolsViewModel()
+
+        // 1. Query parameter parsing test
+        val urlWithParams = "devbrowser:debug/error/unexpected?site=abcdefg.com&err=ERROR_-999"
+        val (path, params) = parseDebugQueryParams(urlWithParams)
+        assertEquals("devbrowser:debug/error/unexpected", path)
+        assertEquals("abcdefg.com", params["site"])
+        assertEquals("ERROR_-999", params["err"])
+
+        val dnsUrlWithSite = "devbrowser:debug/error/dns?site=thisdosentexsist.com"
+        val (dnsPath, dnsParams) = parseDebugQueryParams(dnsUrlWithSite)
+        assertEquals("devbrowser:debug/error/dns", dnsPath)
+        assertEquals("thisdosentexsist.com", dnsParams["site"])
+        assertNull(dnsParams["err"])
+
+        val plainDebugUrl = "devbrowser:debug"
+        val (plainPath, plainParams) = parseDebugQueryParams(plainDebugUrl)
+        assertEquals("devbrowser:debug", plainPath)
+        assertTrue(plainParams.isEmpty())
+
+        // 2. isComposeInternalUrl recognizes debug pages
+        assertTrue(viewModel.isComposeInternalUrl("devbrowser:debug"))
+        assertTrue(viewModel.isComposeInternalUrl("devbrowser:debug/error"))
+        assertTrue(viewModel.isComposeInternalUrl("devbrowser:debug/error/dns"))
+        assertTrue(viewModel.isComposeInternalUrl("devbrowser:debug/error/unexpected?site=abcdefg.com&err=ERROR_-999"))
+
+        // 3. Navigation through address bar
+        viewModel.navigateToInput("devbrowser:debug")
+        assertEquals("devbrowser:debug", viewModel.uiState.value.activeTab.url)
+        assertEquals("DevBrowser Debug", viewModel.uiState.value.activeTab.title)
+
+        viewModel.navigateToInput("devbrowser:debug/error")
+        assertEquals("devbrowser:debug/error", viewModel.uiState.value.activeTab.url)
+        assertEquals("Debug - Error Pages", viewModel.uiState.value.activeTab.title)
+
+        // Navigation with query parameters preserves query parameters
+        val complexUrl = "devbrowser:debug/error/unexpected?site=abcdefg.com&err=ERROR_-999"
+        viewModel.navigateToInput(complexUrl)
+        assertEquals(complexUrl, viewModel.uiState.value.activeTab.url)
+
+        // 4. Test aliases: "debug", "about:debug", "devbrowser://debug", "debug/error"
+        viewModel.navigateToInput("debug")
+        assertEquals(BrowserTab.URL_DEBUG, viewModel.uiState.value.activeTab.url)
+
+        viewModel.navigateToInput("about:debug")
+        assertEquals(BrowserTab.URL_DEBUG, viewModel.uiState.value.activeTab.url)
+
+        viewModel.navigateToInput("devbrowser://debug")
+        assertEquals(BrowserTab.URL_DEBUG, viewModel.uiState.value.activeTab.url)
+
+        viewModel.navigateToInput("debug/error")
+        assertEquals(BrowserTab.URL_DEBUG_ERROR, viewModel.uiState.value.activeTab.url)
+
+        // 5. WebView callbacks (onPageStarted / onPageFinished) must NOT overwrite internal debug page
+        viewModel.navigateToInput("devbrowser:debug")
+        assertEquals(BrowserTab.URL_DEBUG, viewModel.uiState.value.activeTab.url)
+        viewModel.onPageStarted("about:blank")
+        assertEquals("onPageStarted must not overwrite internal page with about:blank", BrowserTab.URL_DEBUG, viewModel.uiState.value.activeTab.url)
+        viewModel.onPageFinished("about:blank", "About Blank", false, false)
+        assertEquals("onPageFinished must not overwrite internal page with about:blank", BrowserTab.URL_DEBUG, viewModel.uiState.value.activeTab.url)
     }
 }

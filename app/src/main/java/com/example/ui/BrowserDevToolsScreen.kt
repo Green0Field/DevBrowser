@@ -7,9 +7,11 @@ import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.example.ui.pages.error.WebErrorPage
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +30,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import com.example.ui.pages.settings.UserscriptEditorPage
+import com.example.ui.pages.debug.DevBrowserDebugPage
 import com.example.ui.components.AiChatDialog
 import com.example.ui.components.AiLanguageSelectorDialog
 import com.example.ui.components.AiTranslationResultDialog
@@ -162,6 +165,32 @@ fun BrowserDevToolsScreen(
                             return true
                         }
                         return false
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        error: WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        if (request?.isForMainFrame == true) {
+                            val failingUrl = request.url?.toString() ?: view?.url ?: ""
+                            val errorCode = error?.errorCode ?: WebViewClient.ERROR_UNKNOWN
+                            val description = error?.description?.toString() ?: ""
+                            viewModel.onWebPageError(failingUrl, errorCode, description, context)
+                        }
+                    }
+
+                    @Suppress("DEPRECATION")
+                    override fun onReceivedError(
+                        view: WebView?,
+                        errorCode: Int,
+                        description: String?,
+                        failingUrl: String?
+                    ) {
+                        super.onReceivedError(view, errorCode, description, failingUrl)
+                        val url = failingUrl ?: view?.url ?: ""
+                        viewModel.onWebPageError(url, errorCode, description ?: "", context)
                     }
                 }
 
@@ -573,9 +602,47 @@ private fun BrowserViewportContainer(
                 onSelectGeminiModel = viewModel::setGeminiModel
             )
 
+            activeUrl == BrowserTab.URL_DEBUG ||
+            activeUrl == "debug" ||
+            activeUrl == "about:debug" ||
+            activeUrl.startsWith("devbrowser:debug") ||
+            activeUrl.startsWith("devbrowser://debug") ||
+            activeUrl.startsWith("about:debug") ||
+            activeUrl.startsWith("debug/") -> DevBrowserDebugPage(
+                currentUrl = uiState.activeTab.url,
+                searchEngine = uiState.searchEngine,
+                tabs = uiState.tabs,
+                activeTab = uiState.activeTab,
+                isDarkTheme = uiState.isDarkTheme,
+                isNeonMode = uiState.isNeonMode,
+                accentColor = uiState.accentColor,
+                onNavigate = { viewModel.navigateToInput(it) },
+                onNavigateBack = {
+                    val currentLower = uiState.activeTab.url.lowercase(Locale.US)
+                    if (currentLower != BrowserTab.URL_DEBUG) {
+                        viewModel.navigateToInput(BrowserTab.URL_DEBUG)
+                    } else {
+                        viewModel.goBack()
+                    }
+                }
+            )
+
             else -> {
-                val preset = uiState.activeTab.devicePreset
-                val hasCustomFrame = preset.widthDp != null && preset.heightDp != null
+                val currentError = uiState.activeTab.errorState
+                if (currentError != null) {
+                    WebErrorPage(
+                        error = currentError,
+                        searchEngine = uiState.searchEngine,
+                        canGoBack = uiState.activeTab.canGoBack,
+                        onRetry = viewModel::retryAfterError,
+                        onGoBack = viewModel::goBack,
+                        onGoHome = { viewModel.navigateToInput(BrowserTab.URL_HOME) },
+                        onSearchWeb = { query -> viewModel.searchWeb(query) },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    val preset = uiState.activeTab.devicePreset
+                    val hasCustomFrame = preset.widthDp != null && preset.heightDp != null
                 if (hasCustomFrame) {
                     val targetW = if (uiState.isViewportLandscape) preset.heightDp!! else preset.widthDp!!
                     val targetH = if (uiState.isViewportLandscape) preset.widthDp!! else preset.heightDp!!
@@ -635,4 +702,5 @@ private fun BrowserViewportContainer(
             }
         }
     }
+}
 }

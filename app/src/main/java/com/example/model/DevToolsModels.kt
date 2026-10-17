@@ -1,5 +1,48 @@
 package com.example.model
 
+data class WebPageError(
+    val url: String,
+    val errorCode: Int,
+    val errorName: String,
+    val description: String,
+    val errorType: WebPageErrorType,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+enum class WebPageErrorType(
+    val title: String,
+    val subtitle: String
+) {
+    WEBSITE_DOES_NOT_EXIST(
+        title = "Website doesn't exist",
+        subtitle = "The server at this address could not be found. The site may not exist or the address may have a typo."
+    ),
+    NO_INTERNET(
+        title = "No Internet Connection",
+        subtitle = "You are currently offline. Check your network cables, Wi-Fi, or mobile data connection."
+    ),
+    CONNECTION_TIMED_OUT(
+        title = "Connection Timed Out",
+        subtitle = "The website took too long to respond. The server might be down or experiencing heavy traffic."
+    ),
+    CANNOT_CONNECT(
+        title = "Cannot Connect to Server",
+        subtitle = "The connection to the website's server was refused or the host is unreachable."
+    ),
+    SECURITY_SSL_ERROR(
+        title = "Secure Connection Failed",
+        subtitle = "A secure connection to this website could not be established."
+    ),
+    INVALID_ADDRESS(
+        title = "Invalid Web Address",
+        subtitle = "The web address entered is not valid or uses an unsupported protocol."
+    ),
+    UNEXPECTED_ERROR(
+        title = "Unexpected Error",
+        subtitle = "An unexpected error occurred while loading this page."
+    )
+}
+
 data class BrowserTab(
     val id: String,
     val title: String = "Home",
@@ -11,7 +54,8 @@ data class BrowserTab(
     val backStack: List<String> = emptyList(),
     val forwardStack: List<String> = emptyList(),
     val isDesktopSite: Boolean = false,
-    val devicePreset: DeviceViewportPreset = DeviceViewportPreset.RESPONSIVE
+    val devicePreset: DeviceViewportPreset = DeviceViewportPreset.RESPONSIVE,
+    val errorState: WebPageError? = null
 ) {
     val canGoBack: Boolean
         get() = backStack.isNotEmpty() || webViewCanGoBack
@@ -35,6 +79,8 @@ data class BrowserTab(
         const val URL_SETTINGS_AI = "devbrowser:settings/ai"
         const val URL_SETTINGS_USERSCRIPTS = "devbrowser:settings/userscripts"
         const val URL_SETTINGS_ABOUT = "devbrowser:settings/about"
+        const val URL_DEBUG = "devbrowser:debug"
+        const val URL_DEBUG_ERROR = "devbrowser:debug/error"
         const val INTERNAL_TEST_BASE_URL = "https://devbrowser.internal/test"
     }
 }

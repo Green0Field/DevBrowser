@@ -45,6 +45,9 @@ import com.example.model.AiChatDialogState
 import com.example.model.ChatMessage
 import com.example.model.GeminiModelChoice
 import com.example.model.WebpageTranslationState
+import com.example.model.WebPageError
+import com.example.model.WebPageErrorType
+import com.example.ui.pages.error.resolveWebPageError
 import com.example.data.GeminiApiClient
 import com.example.BuildConfig
 import java.text.SimpleDateFormat
@@ -377,10 +380,27 @@ class BrowserDevToolsViewModel(
     fun isComposeInternalUrl(url: String): Boolean {
         val lower = url.lowercase(Locale.US).trim()
         return lower == BrowserTab.URL_HOME ||
+            lower == "about:home" ||
+            lower == "home" ||
             lower == BrowserTab.URL_BOOKMARKS ||
+            lower == "about:bookmarks" ||
+            lower == "bookmarks" ||
             lower == BrowserTab.URL_HISTORY ||
+            lower == "about:history" ||
+            lower == "history" ||
             lower == BrowserTab.URL_SETTINGS ||
-            lower.startsWith("devbrowser:settings")
+            lower == "about:settings" ||
+            lower == "settings" ||
+            lower.startsWith("devbrowser:settings") ||
+            lower.startsWith("about:settings") ||
+            lower == BrowserTab.URL_DEBUG ||
+            lower == "about:debug" ||
+            lower == "debug" ||
+            lower == "devbrowser://debug" ||
+            lower.startsWith("devbrowser:debug") ||
+            lower.startsWith("devbrowser://debug") ||
+            lower.startsWith("about:debug") ||
+            lower.startsWith("debug/")
     }
 
     private fun titleForInternalUrl(url: String): String {
@@ -397,6 +417,10 @@ class BrowserDevToolsViewModel(
             lower == BrowserTab.URL_SETTINGS_AI -> "Settings - Ai Features"
             lower == BrowserTab.URL_SETTINGS_ABOUT -> "Settings - About"
             lower.startsWith("devbrowser:settings/") -> "Settings - " + lower.removePrefix("devbrowser:settings/").replaceFirstChar { it.uppercase() }
+            lower == BrowserTab.URL_DEBUG -> "DevBrowser Debug"
+            lower == BrowserTab.URL_DEBUG_ERROR -> "Debug - Error Pages"
+            lower.startsWith("devbrowser:debug/error/") -> "Debug - " + lower.removePrefix("devbrowser:debug/error/").substringBefore("?").replaceFirstChar { it.uppercase() }
+            lower.startsWith("devbrowser:debug/") -> "Debug - " + lower.removePrefix("devbrowser:debug/").substringBefore("?").replaceFirstChar { it.uppercase() }
             lower == BrowserTab.URL_TEST -> "DevBrowser Test Page"
             else -> url
         }
@@ -446,10 +470,10 @@ class BrowserDevToolsViewModel(
             val isComposeInternal = isComposeInternalUrl(currentTab.url)
             val updatedTabs = state.tabs.map { tab ->
                 if (tab.id == state.activeTabId) {
-                    if (isComposeInternal && displayUrl == BrowserTab.URL_TEST) {
+                    if (isComposeInternal) {
                         tab
                     } else {
-                        tab.copy(url = displayUrl, isLoading = true, progress = 15)
+                        tab.copy(url = displayUrl, isLoading = true, progress = 15, errorState = null)
                     }
                 } else tab
             }
@@ -487,7 +511,7 @@ class BrowserDevToolsViewModel(
             val isComposeInternal = isComposeInternalUrl(currentTab.url)
             val updatedTabs = state.tabs.map { tab ->
                 if (tab.id == state.activeTabId) {
-                    if (isComposeInternal && displayUrl == BrowserTab.URL_TEST) {
+                    if (isComposeInternal) {
                         tab.copy(isLoading = false, progress = 100)
                     } else {
                         tab.copy(
@@ -522,6 +546,58 @@ class BrowserDevToolsViewModel(
         }
     }
 
+    fun onWebPageError(failingUrl: String, errorCode: Int, description: String, context: Context) {
+        val currentTab = _uiState.value.activeTab
+        if (isComposeInternalUrl(currentTab.url)) {
+            return
+        }
+        val error = resolveWebPageError(context, failingUrl, errorCode, description)
+        _uiState.update { state ->
+            val updatedTabs = state.tabs.map { tab ->
+                if (tab.id == state.activeTabId) {
+                    tab.copy(
+                        isLoading = false,
+                        progress = 100,
+                        errorState = error,
+                        title = error.errorType.title
+                    )
+                } else tab
+            }
+            state.copy(tabs = updatedTabs)
+        }
+    }
+
+    fun clearWebPageError() {
+        _uiState.update { state ->
+            val updatedTabs = state.tabs.map { tab ->
+                if (tab.id == state.activeTabId) {
+                    tab.copy(errorState = null)
+                } else tab
+            }
+            state.copy(tabs = updatedTabs)
+        }
+    }
+
+    fun retryAfterError() {
+        val tab = _uiState.value.activeTab
+        val targetUrl = tab.errorState?.url ?: tab.url
+        clearWebPageError()
+        if (targetUrl.isNotBlank() && !targetUrl.startsWith("devbrowser:")) {
+            viewModelScope.launch(Dispatchers.Main) {
+                val wv = webViewRef ?: return@launch
+                wv.loadUrl(targetUrl)
+            }
+        } else {
+            reloadActivePage()
+        }
+    }
+
+    fun searchWeb(query: String) {
+        val engine = _uiState.value.searchEngine
+        val searchUrl = engine.formatSearchUrl(query)
+        navigateToInput(searchUrl)
+    }
+
     private fun resolveInputToUrl(rawInput: String): String {
         val trimmed = rawInput.trim()
         val lower = trimmed.lowercase(Locale.US)
@@ -536,6 +612,22 @@ class BrowserDevToolsViewModel(
             lower == "devbrowser:settings/virustotal" -> BrowserTab.URL_SETTINGS_VIRUSTOTAL
             lower == "devbrowser:settings/about" -> BrowserTab.URL_SETTINGS_ABOUT
             lower.startsWith("devbrowser:settings/") -> lower
+            // Debug URL mappings - support devbrowser:debug, devbrowser://debug, about:debug, debug
+            lower == "devbrowser:debug" || lower == "about:debug" || lower == "debug" || lower == "devbrowser://debug" -> BrowserTab.URL_DEBUG
+            lower == "devbrowser:debug/error" || lower == "about:debug/error" || lower == "debug/error" || lower == "devbrowser://debug/error" -> BrowserTab.URL_DEBUG_ERROR
+            trimmed.startsWith("devbrowser:debug", ignoreCase = true) ||
+            trimmed.startsWith("devbrowser://debug", ignoreCase = true) ||
+            trimmed.startsWith("about:debug", ignoreCase = true) ||
+            trimmed.startsWith("debug/", ignoreCase = true) -> {
+                val suffix = when {
+                    trimmed.startsWith("devbrowser://debug", ignoreCase = true) -> trimmed.substring("devbrowser://debug".length)
+                    trimmed.startsWith("devbrowser:debug", ignoreCase = true) -> trimmed.substring("devbrowser:debug".length)
+                    trimmed.startsWith("about:debug", ignoreCase = true) -> trimmed.substring("about:debug".length)
+                    trimmed.startsWith("debug/", ignoreCase = true) -> "/" + trimmed.substring("debug/".length)
+                    else -> ""
+                }
+                "devbrowser:debug$suffix"
+            }
             lower == "devbrowser:test" || lower == "demo" || lower == "sandbox" ||
                 lower.contains("devscope.local") || lower.contains("devbrowser.internal") -> BrowserTab.URL_TEST
             lower.startsWith("devbrowser:") -> lower
@@ -576,7 +668,8 @@ class BrowserDevToolsViewModel(
                         isLoading = !isInternalCompose,
                         progress = if (isInternalCompose) 100 else 15,
                         backStack = newBackStack,
-                        forwardStack = if (pushToBackStack) emptyList() else tab.forwardStack
+                        forwardStack = if (pushToBackStack) emptyList() else tab.forwardStack,
+                        errorState = null
                     )
                 } else tab
             }
