@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +51,8 @@ import com.example.model.VirusTotalRescanInterval
 import com.example.model.UserScript
 import com.example.model.UserScriptUpdateInterval
 import com.example.model.GeminiModelChoice
+import com.example.model.AutoUpdateCheckFrequency
+import com.example.model.UpdateCheckStatus
 
 @Composable
 fun DevBrowserSettingsPage(
@@ -110,6 +113,20 @@ fun DevBrowserSettingsPage(
     onClearAiScanCache: () -> Unit = {},
     selectedGeminiModel: GeminiModelChoice = GeminiModelChoice.AUTO,
     onSelectGeminiModel: (GeminiModelChoice) -> Unit = {},
+    isAutoUpdateEnabled: Boolean = true,
+    githubApiKey: String = "",
+    autoUpdateFrequency: AutoUpdateCheckFrequency = AutoUpdateCheckFrequency.EACH_STARTUP,
+    autoUpdateStartupCount: Int = 0,
+    lastUpdateCheckMillis: Long = 0L,
+    updateCheckStatus: UpdateCheckStatus = UpdateCheckStatus.Idle,
+    isIncludePrereleases: Boolean = false,
+    onSetAutoUpdateEnabled: (Boolean) -> Unit = {},
+    onSaveGithubApiKey: (String) -> Unit = {},
+    onSelectAutoUpdateFrequency: (AutoUpdateCheckFrequency) -> Unit = {},
+    onSetIncludePrereleases: (Boolean) -> Unit = {},
+    onCheckForUpdates: () -> Unit = {},
+    onDownloadUpdateApk: (String) -> Unit = {},
+    onOpenReleaseUrl: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -275,7 +292,25 @@ fun DevBrowserSettingsPage(
                     )
                 }
 
-                // 7. About Category Card
+                // 7. Auto Update Category Card (above About)
+                item {
+                    val updateStatusPill = when (val s = updateCheckStatus) {
+                        is UpdateCheckStatus.Checking -> "Checking…"
+                        is UpdateCheckStatus.UpdateAvailable -> "Update: v${s.info.latestVersionName}"
+                        is UpdateCheckStatus.UpToDate -> "Up to date"
+                        is UpdateCheckStatus.Error -> "Check failed"
+                        is UpdateCheckStatus.Idle -> if (isAutoUpdateEnabled) autoUpdateFrequency.displayName else "Disabled"
+                    }
+                    SettingsCategoryCard(
+                        category = SettingsCategory.AUTO_UPDATE,
+                        icon = Icons.Default.SystemUpdate,
+                        statusPill = updateStatusPill,
+                        onClick = { onNavigate(SettingsCategory.AUTO_UPDATE.url) },
+                        testTag = "settings_category_card_auto_update"
+                    )
+                }
+
+                // 8. About Category Card
                 item {
                     SettingsCategoryCard(
                         category = SettingsCategory.ABOUT,
@@ -352,6 +387,23 @@ fun DevBrowserSettingsPage(
                             onToggleScriptEnabled = onToggleUserScriptEnabled,
                             onSelectUpdateInterval = onSelectUserScriptUpdateInterval,
                             onImportFromUrl = onImportUserScriptFromUrl
+                        )
+
+                        SettingsCategory.AUTO_UPDATE -> AutoUpdateSettingsSection(
+                            isEnabled = isAutoUpdateEnabled,
+                            apiKey = githubApiKey,
+                            checkFrequency = autoUpdateFrequency,
+                            startupCount = autoUpdateStartupCount,
+                            lastCheckMillis = lastUpdateCheckMillis,
+                            updateStatus = updateCheckStatus,
+                            isIncludePrereleases = isIncludePrereleases,
+                            onSetEnabled = onSetAutoUpdateEnabled,
+                            onSaveApiKey = onSaveGithubApiKey,
+                            onSelectFrequency = onSelectAutoUpdateFrequency,
+                            onSetIncludePrereleases = onSetIncludePrereleases,
+                            onCheckForUpdates = onCheckForUpdates,
+                            onDownloadApk = onDownloadUpdateApk,
+                            onOpenReleaseUrl = onOpenReleaseUrl
                         )
 
                         SettingsCategory.ABOUT -> AboutSettingsSection(

@@ -17,6 +17,7 @@ import com.example.model.UserScript
 import com.example.model.UserScriptUpdateInterval
 import com.example.model.AiProtectionScanResult
 import com.example.model.AiThreatCategory
+import com.example.model.AutoUpdateCheckFrequency
 import com.example.model.GeminiModelChoice
 import com.example.viewmodel.BrowserUiState
 import org.json.JSONArray
@@ -67,6 +68,14 @@ class BrowserPreferencesStore(context: Context) {
         val aiTranslateEnabled = prefs.getBoolean(KEY_AI_TRANSLATE_ENABLED, baseState.isAiTranslateEnabled)
         val aiScans = loadAiScanResults()
 
+        val autoUpdateEnabled = prefs.getBoolean(KEY_AUTO_UPDATE_ENABLED, baseState.isAutoUpdateEnabled)
+        val githubApiKey = prefs.getString(KEY_GITHUB_API_KEY, baseState.githubApiKey) ?: ""
+        val freqName = prefs.getString(KEY_AUTO_UPDATE_FREQUENCY, baseState.autoUpdateFrequency.name)
+        val autoUpdateFreq = runCatching { AutoUpdateCheckFrequency.valueOf(freqName ?: "") }.getOrDefault(AutoUpdateCheckFrequency.EACH_STARTUP)
+        val startupCount = prefs.getInt(KEY_AUTO_UPDATE_STARTUP_COUNT, baseState.autoUpdateStartupCount)
+        val lastCheckMillis = prefs.getLong(KEY_LAST_UPDATE_CHECK_MILLIS, baseState.lastUpdateCheckMillis)
+        val includePrereleases = prefs.getBoolean(KEY_INCLUDE_PRERELEASES, baseState.isIncludePrereleases)
+
         return baseState.copy(
             isDarkTheme = isDark,
             isNeonMode = isNeon,
@@ -93,7 +102,13 @@ class BrowserPreferencesStore(context: Context) {
             isAiProtectionEnabled = aiProtectionEnabled,
             isAiSummaryEnabled = aiSummaryEnabled,
             isAiTranslateEnabled = aiTranslateEnabled,
-            aiScanCache = aiScans
+            aiScanCache = aiScans,
+            isAutoUpdateEnabled = autoUpdateEnabled,
+            githubApiKey = githubApiKey,
+            autoUpdateFrequency = autoUpdateFreq,
+            autoUpdateStartupCount = startupCount,
+            lastUpdateCheckMillis = lastCheckMillis,
+            isIncludePrereleases = includePrereleases
         )
     }
 
@@ -503,6 +518,30 @@ class BrowserPreferencesStore(context: Context) {
         prefs.edit().remove(KEY_AI_SCANS_JSON).commit()
     }
 
+    fun saveAutoUpdateEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_UPDATE_ENABLED, enabled).apply()
+    }
+
+    fun saveGithubApiKey(apiKey: String) {
+        prefs.edit().putString(KEY_GITHUB_API_KEY, apiKey).apply()
+    }
+
+    fun saveAutoUpdateFrequency(frequency: AutoUpdateCheckFrequency) {
+        prefs.edit().putString(KEY_AUTO_UPDATE_FREQUENCY, frequency.name).apply()
+    }
+
+    fun saveAutoUpdateStartupCount(count: Int) {
+        prefs.edit().putInt(KEY_AUTO_UPDATE_STARTUP_COUNT, count).apply()
+    }
+
+    fun saveLastUpdateCheckMillis(millis: Long) {
+        prefs.edit().putLong(KEY_LAST_UPDATE_CHECK_MILLIS, millis).apply()
+    }
+
+    fun saveIncludePrereleases(include: Boolean) {
+        prefs.edit().putBoolean(KEY_INCLUDE_PRERELEASES, include).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "devbrowser_user_preferences"
         private const val KEY_IS_DARK_THEME = "is_dark_theme"
@@ -531,5 +570,11 @@ class BrowserPreferencesStore(context: Context) {
         private const val KEY_AI_SUMMARY_ENABLED = "ai_summary_enabled"
         private const val KEY_AI_TRANSLATE_ENABLED = "ai_translate_enabled"
         private const val KEY_AI_SCANS_JSON = "ai_scans_json"
+        private const val KEY_AUTO_UPDATE_ENABLED = "auto_update_enabled"
+        private const val KEY_GITHUB_API_KEY = "github_api_key"
+        private const val KEY_AUTO_UPDATE_FREQUENCY = "auto_update_frequency"
+        private const val KEY_AUTO_UPDATE_STARTUP_COUNT = "auto_update_startup_count"
+        private const val KEY_LAST_UPDATE_CHECK_MILLIS = "auto_update_last_check_millis"
+        private const val KEY_INCLUDE_PRERELEASES = "include_prereleases"
     }
 }

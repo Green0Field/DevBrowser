@@ -100,15 +100,19 @@ jobs:
             echo '```'
           } >> CHANGELOG.md
 
+          # Update Fastlane/F-Droid metadata changelog (<versionCode>.txt, max 500 chars for F-Droid)
+          VERSION_CODE=$(grep -E '^\s*versionCode\s*=' app/build.gradle.kts | sed -E 's/.*versionCode\s*=\s*([0-9]+).*/\1/' | head -n 1)
+          python3 .github/scripts/update_metadata_changelog.py "$SHORT_DESC" "$VERSION_NO_V" "$VERSION_CODE"
+
           # Update README.md download links
           python3 .github/scripts/update_readme_links.py "$VERSION_NO_V" "$IS_PRERELEASE"
 
-          # Commit and push updated CHANGELOG.md and README.md back to the repository
+          # Commit and push updated CHANGELOG.md, README.md, and Fastlane metadata back to the repository
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md README.md
+          git add CHANGELOG.md README.md fastlane/
           if ! git diff --staged --quiet; then
-            git commit -m "docs: update CHANGELOG.md and README.md for $VERSION_WITH_V [skip ci]"
+            git commit -m "docs: update CHANGELOG.md, README.md, and metadata for $VERSION_WITH_V [skip ci]"
             git push origin HEAD || true
           fi
 

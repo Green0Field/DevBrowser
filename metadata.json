@@ -1,6 +1,6 @@
 {
   "name": "DevBrowser",
-  "description": "Developer web browser with integrated Chrome DevTools for DOM inspection, live CSS editing, JavaScript console, network waterfall analysis, storage inspection, and responsive device emulation.",
+  "description": "A open browser with cool features and made for everyone!",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

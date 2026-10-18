@@ -78,9 +78,11 @@ data class BrowserTab(
         const val URL_SETTINGS_VIRUSTOTAL = "devbrowser:settings/virustotal"
         const val URL_SETTINGS_AI = "devbrowser:settings/ai"
         const val URL_SETTINGS_USERSCRIPTS = "devbrowser:settings/userscripts"
+        const val URL_SETTINGS_AUTO_UPDATE = "devbrowser:settings/auto-update"
         const val URL_SETTINGS_ABOUT = "devbrowser:settings/about"
         const val URL_DEBUG = "devbrowser:debug"
         const val URL_DEBUG_ERROR = "devbrowser:debug/error"
+        const val URL_DEBUG_AUTO_UPDATE = "devbrowser:debug/autoupdate"
         const val INTERNAL_TEST_BASE_URL = "https://devbrowser.internal/test"
     }
 }
@@ -635,6 +637,12 @@ enum class SettingsCategory(
         subtitle = "Custom user scripts, tampermonkey support, and auto-update",
         url = BrowserTab.URL_SETTINGS_USERSCRIPTS
     ),
+    AUTO_UPDATE(
+        categoryId = "auto-update",
+        displayName = "Auto update",
+        subtitle = "Check for updates from GitHub Releases, API key, startup schedule",
+        url = BrowserTab.URL_SETTINGS_AUTO_UPDATE
+    ),
     ABOUT(
         categoryId = "about",
         displayName = "About DevBrowser",
@@ -650,6 +658,39 @@ enum class SettingsCategory(
             }
         }
     }
+}
+
+enum class AutoUpdateCheckFrequency(val displayName: String, val startupThreshold: Int) {
+    EACH_STARTUP("After each startup", 1),
+    EVERY_2_STARTUPS("After 2 startups", 2),
+    EVERY_3_STARTUPS("After 3 startups", 3),
+    EVERY_5_STARTUPS("After 5 startups", 5),
+    MANUAL_ONLY("Manual only", 0);
+
+    companion object {
+        fun fromThreshold(threshold: Int): AutoUpdateCheckFrequency =
+            entries.firstOrNull { it.startupThreshold == threshold } ?: EACH_STARTUP
+    }
+}
+
+data class AppUpdateInfo(
+    val latestVersionName: String,
+    val releaseTitle: String = "",
+    val releaseNotes: String = "",
+    val publishedAt: String = "",
+    val downloadUrl: String = "",
+    val htmlUrl: String = "",
+    val apkFileName: String = "",
+    val apkSizeFormatted: String = "",
+    val isUpdateAvailable: Boolean = false
+)
+
+sealed class UpdateCheckStatus {
+    object Idle : UpdateCheckStatus()
+    object Checking : UpdateCheckStatus()
+    data class UpdateAvailable(val info: AppUpdateInfo) : UpdateCheckStatus()
+    data class UpToDate(val currentVersion: String, val lastCheckedMillis: Long = System.currentTimeMillis()) : UpdateCheckStatus()
+    data class Error(val message: String) : UpdateCheckStatus()
 }
 
 data class UserScript(

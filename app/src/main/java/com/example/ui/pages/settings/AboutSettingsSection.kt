@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.BuildConfig
 import com.example.R
@@ -122,6 +123,14 @@ fun AboutSettingsSection(
                         )
                     }
                 }
+
+                Text(
+                    text = "A open browser with cool features and made for everyone!",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("about_app_description")
+                )
             }
         }
 

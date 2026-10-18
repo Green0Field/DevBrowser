@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Devices
@@ -33,7 +34,9 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,10 +54,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import java.net.URLEncoder
+import com.example.model.AppUpdateInfo
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -142,11 +148,18 @@ enum class DebugCategory(
         subtitle = "Active tabs, cache stats, Webview engine, and memory diagnostics",
         path = "devbrowser:debug/runtime",
         icon = Icons.Default.BugReport
+    ),
+    AUTO_UPDATE(
+        id = "autoupdate",
+        title = "Auto-Update Simulator",
+        subtitle = "Simulate update popup with custom version, description, and changelog parameters",
+        path = "devbrowser:debug/autoupdate",
+        icon = Icons.Default.SystemUpdate
     );
 
     companion object {
         fun fromPath(path: String): DebugCategory? {
-            val lower = path.lowercase(Locale.US)
+            val lower = path.lowercase(Locale.US).substringBefore("?")
             return entries.firstOrNull { lower == it.path || lower.startsWith("${it.path}/") }
         }
     }
@@ -231,6 +244,8 @@ fun DevBrowserDebugPage(
     accentColor: ThemeAccentColor,
     onNavigate: (String) -> Unit,
     onNavigateBack: () -> Unit,
+    onTriggerAutoUpdate: (version: String?, description: String?, changelog: String?) -> Unit = { _, _, _ -> },
+    pendingUpdateNotice: AppUpdateInfo? = null,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -380,6 +395,12 @@ fun DevBrowserDebugPage(
                 DebugCategory.RUNTIME -> DebugRuntimeCategoryView(
                     tabs = tabs,
                     activeTab = activeTab
+                )
+                DebugCategory.AUTO_UPDATE -> DebugAutoUpdateCategoryView(
+                    currentUrl = currentUrl,
+                    queryParams = queryParams,
+                    onNavigate = onNavigate,
+                    onTriggerAutoUpdate = onTriggerAutoUpdate
                 )
             }
         }
@@ -965,3 +986,371 @@ private fun DebugRuntimeCategoryView(
         }
     }
 }
+
+fun buildAutoUpdateDebugUrl(version: String, description: String, changelog: String): String {
+    val params = mutableListOf<String>()
+    if (version.isNotBlank()) params.add("version=" + URLEncoder.encode(version.trim(), "UTF-8"))
+    if (description.isNotBlank()) params.add("description=" + URLEncoder.encode(description.trim(), "UTF-8"))
+    if (changelog.isNotBlank()) params.add("changelog=" + URLEncoder.encode(changelog.trim(), "UTF-8"))
+    return if (params.isEmpty()) BrowserTab.URL_DEBUG_AUTO_UPDATE else "${BrowserTab.URL_DEBUG_AUTO_UPDATE}?" + params.joinToString("&")
+}
+
+/**
+ * Category page for Auto-Update simulator: devbrowser:debug/autoupdate
+ */
+@Composable
+private fun DebugAutoUpdateCategoryView(
+    currentUrl: String,
+    queryParams: Map<String, String>,
+    onNavigate: (String) -> Unit,
+    onTriggerAutoUpdate: (version: String?, description: String?, changelog: String?) -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    val clipboardManager = LocalClipboardManager.current
+
+    val paramVersion = queryParams["version"] ?: queryParams["v"]
+    val paramDesc = queryParams["description"] ?: queryParams["desc"] ?: queryParams["short_description"]
+    val paramChangelog = queryParams["changelog"] ?: queryParams["notes"] ?: queryParams["release_notes"]
+
+    // Automatically trigger update popup when navigating to this debug page
+    LaunchedEffect(currentUrl) {
+        onTriggerAutoUpdate(paramVersion, paramDesc, paramChangelog)
+    }
+
+    var versionInput by remember(paramVersion) { mutableStateOf(paramVersion ?: "") }
+    var descInput by remember(paramDesc) { mutableStateOf(paramDesc ?: "") }
+    var changelogInput by remember(paramChangelog) { mutableStateOf(paramChangelog ?: "") }
+
+    val cleanPreviewVersion = versionInput.trim().removePrefix("v").removePrefix("V").ifEmpty { "12.3" }
+    val computedDownloadUrl = "https://github.com/Green0Field/DevBrowser/releases/download/v$cleanPreviewVersion/DevBrowser-$cleanPreviewVersion-release.apk"
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Banner Card
+        item {
+            Surface(
+                color = cs.surface,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(cs.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                tint = cs.onPrimaryContainer,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-Update Debug Simulator",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = cs.onSurface
+                            )
+                            Text(
+                                text = "Simulate update popup on demand even when no update is published",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = cs.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.4f))
+
+                    Text(
+                        text = "The update popup triggers automatically upon opening this page. You can customize the version, short description, and changelog below, or launch the popup anytime.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = cs.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = {
+                            onTriggerAutoUpdate(
+                                versionInput.ifBlank { null },
+                                descInput.ifBlank { null },
+                                changelogInput.ifBlank { null }
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = cs.primary,
+                            contentColor = cs.onPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_trigger_debug_update")
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Show Update Popup Now")
+                    }
+                }
+            }
+        }
+
+        // Live Parameter Inputs
+        item {
+            Surface(
+                color = cs.surface,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Customize Simulation Parameters",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = cs.onSurface
+                    )
+                    Text(
+                        text = "If any field is left empty, the value is automatically fetched from the newest GitHub release.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = versionInput,
+                        onValueChange = { versionInput = it },
+                        label = { Text("Version Number (?version=...)") },
+                        placeholder = { Text("e.g. 12.3 or 1.0.0") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_debug_autoupdate_version")
+                    )
+
+                    OutlinedTextField(
+                        value = descInput,
+                        onValueChange = { descInput = it },
+                        label = { Text("Short Description (?description=...)") },
+                        placeholder = { Text("e.g. cool new version") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_debug_autoupdate_description")
+                    )
+
+                    OutlinedTextField(
+                        value = changelogInput,
+                        onValueChange = { changelogInput = it },
+                        label = { Text("Changelog (?changelog=...)") },
+                        placeholder = { Text("e.g. - Added new feature\\n - added another feature") },
+                        minLines = 3,
+                        maxLines = 6,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_debug_autoupdate_changelog")
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val targetUrl = buildAutoUpdateDebugUrl(versionInput, descInput, changelogInput)
+                                onNavigate(targetUrl)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Apply & Update URL")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                versionInput = ""
+                                descInput = ""
+                                changelogInput = ""
+                                onNavigate(BrowserTab.URL_DEBUG_AUTO_UPDATE)
+                            }
+                        ) {
+                            Text("Clear")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Quick Presets
+        item {
+            Surface(
+                color = cs.surface,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Quick Presets",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = cs.onSurface
+                    )
+
+                    // Preset 1: user specified example
+                    OutlinedButton(
+                        onClick = {
+                            val presetUrl = "devbrowser:debug/autoupdate?version=12.3&description=cool new version&changelog=- Added new feature\\n- added another feature"
+                            onNavigate(presetUrl)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_preset_v12_3")
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                            Text("Preset: v12.3 with Custom Description & Changelog", fontWeight = FontWeight.SemiBold)
+                            Text("?version=12.3&description=cool new version&changelog=...", style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+                        }
+                    }
+
+                    // Preset 2: version only (tests GitHub fallback)
+                    OutlinedButton(
+                        onClick = {
+                            val presetUrl = "devbrowser:debug/autoupdate?version=99.0"
+                            onNavigate(presetUrl)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_preset_github_fallback")
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                            Text("Preset: Version 99.0 only (GitHub Fallback for notes)", fontWeight = FontWeight.SemiBold)
+                            Text("?version=99.0 (Description and notes retrieved from GitHub)", style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+                        }
+                    }
+
+                    // Preset 3: v0.2 Minor Update
+                    OutlinedButton(
+                        onClick = {
+                            val presetUrl = "devbrowser:debug/autoupdate?version=0.2&description=Bug Fixes & Improvements&changelog=- Fixed tab switching\\n- Improved JavaScript engine"
+                            onNavigate(presetUrl)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_preset_v0_2")
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                            Text("Preset: v0.2 Minor Update", fontWeight = FontWeight.SemiBold)
+                            Text("?version=0.2&description=Bug Fixes...&changelog=...", style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+                        }
+                    }
+
+                    // Preset 4: Pure GitHub latest
+                    OutlinedButton(
+                        onClick = {
+                            onNavigate(BrowserTab.URL_DEBUG_AUTO_UPDATE)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_preset_github_latest")
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                            Text("Preset: Pure GitHub Latest (No Query Params)", fontWeight = FontWeight.SemiBold)
+                            Text("devbrowser:debug/autoupdate", style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Automatic Download Link Card
+        item {
+            Surface(
+                color = cs.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Automated Download URL Resolution",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = cs.onSurface
+                    )
+                    Text(
+                        text = "A URL download parameter is not needed because DevBrowser computes the APK binary URL directly from the version number:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant
+                    )
+                    Surface(
+                        color = cs.surface,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = computedDownloadUrl,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                            color = cs.primary,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Copyable Test URL Card
+        item {
+            val fullUrl = buildAutoUpdateDebugUrl(versionInput, descInput, changelogInput)
+            Surface(
+                color = cs.surface,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Current Simulator URL",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = cs.onSurface
+                    )
+                    Text(
+                        text = fullUrl,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = cs.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Button(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(fullUrl))
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Copy URL")
+                    }
+                }
+            }
+        }
+    }
+}
+

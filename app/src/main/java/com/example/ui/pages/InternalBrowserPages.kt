@@ -168,7 +168,7 @@ fun DevBrowserHomePage(
                                 color = cs.onBackground
                             )
                             Text(
-                                text = "Expressive Web Browser & Chrome DevTools",
+                                text = "A open browser with cool features and made for everyone!",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = cs.primary
                             )

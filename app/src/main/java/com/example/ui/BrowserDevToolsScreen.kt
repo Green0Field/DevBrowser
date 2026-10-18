@@ -34,6 +34,7 @@ import com.example.ui.pages.debug.DevBrowserDebugPage
 import com.example.ui.components.AiChatDialog
 import com.example.ui.components.AiLanguageSelectorDialog
 import com.example.ui.components.AiTranslationResultDialog
+import com.example.ui.components.AppUpdateDialog
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -74,13 +75,17 @@ import java.util.Locale
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun BrowserDevToolsScreen(
+    initialUrl: String? = null,
     viewModel: BrowserDevToolsViewModel = viewModel(
         factory = BrowserDevToolsViewModel.provideFactory(LocalContext.current)
     )
 ) {
     val context = LocalContext.current
-    remember(viewModel, context) {
+    remember(viewModel, context, initialUrl) {
         viewModel.attachPreferencesIfNeeded(context)
+        if (!initialUrl.isNullOrBlank()) {
+            viewModel.navigateToInput(initialUrl)
+        }
         true
     }
     val uiState by viewModel.uiState.collectAsState()
@@ -471,6 +476,26 @@ fun BrowserDevToolsScreen(
                     )
                 }
             }
+
+            // App Update Available Dialog
+            val pendingUpdate = uiState.pendingUpdateNotice
+            if (pendingUpdate != null) {
+                AppUpdateDialog(
+                    updateInfo = pendingUpdate,
+                    onDownloadApk = { url ->
+                        runCatching {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        }
+                    },
+                    onOpenReleaseUrl = { url ->
+                        viewModel.navigateToInput(url)
+                    },
+                    onDismiss = viewModel::dismissUpdateNotice
+                )
+            }
         }
     }
 }
@@ -484,6 +509,7 @@ private fun BrowserViewportContainer(
 ) {
     val activeUrl = uiState.activeTab.url.lowercase(Locale.US)
     val cs = MaterialTheme.colorScheme
+    val context = LocalContext.current
 
     Box(
         modifier = modifier
@@ -599,7 +625,30 @@ private fun BrowserViewportContainer(
                 onSetAiTranslateEnabled = viewModel::setAiTranslateEnabled,
                 onClearAiScanCache = viewModel::clearAiScanCache,
                 selectedGeminiModel = uiState.selectedGeminiModel,
-                onSelectGeminiModel = viewModel::setGeminiModel
+                onSelectGeminiModel = viewModel::setGeminiModel,
+                isAutoUpdateEnabled = uiState.isAutoUpdateEnabled,
+                githubApiKey = uiState.githubApiKey,
+                autoUpdateFrequency = uiState.autoUpdateFrequency,
+                autoUpdateStartupCount = uiState.autoUpdateStartupCount,
+                lastUpdateCheckMillis = uiState.lastUpdateCheckMillis,
+                updateCheckStatus = uiState.updateCheckStatus,
+                isIncludePrereleases = uiState.isIncludePrereleases,
+                onSetAutoUpdateEnabled = viewModel::setAutoUpdateEnabled,
+                onSaveGithubApiKey = viewModel::setGithubApiKey,
+                onSelectAutoUpdateFrequency = viewModel::setAutoUpdateFrequency,
+                onSetIncludePrereleases = viewModel::setIncludePrereleases,
+                onCheckForUpdates = { viewModel.checkForAppUpdates(isManual = true) },
+                onDownloadUpdateApk = { url: String ->
+                    runCatching {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    }
+                },
+                onOpenReleaseUrl = { url: String ->
+                    viewModel.navigateToInput(url)
+                }
             )
 
             activeUrl == BrowserTab.URL_DEBUG ||
@@ -624,7 +673,9 @@ private fun BrowserViewportContainer(
                     } else {
                         viewModel.goBack()
                     }
-                }
+                },
+                onTriggerAutoUpdate = viewModel::triggerDebugAutoUpdate,
+                pendingUpdateNotice = uiState.pendingUpdateNotice
             )
 
             else -> {

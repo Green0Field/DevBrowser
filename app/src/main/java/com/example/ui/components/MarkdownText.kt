@@ -24,7 +24,8 @@ fun MarkdownText(
     modifier: Modifier = Modifier,
     color: Color = Color.Unspecified,
     fontSize: TextUnit = 14.sp,
-    lineHeight: TextUnit = 20.sp
+    lineHeight: TextUnit = 20.sp,
+    fontWeight: FontWeight? = null
 ) {
     val defaultColor = if (color == Color.Unspecified) MaterialTheme.colorScheme.onSurface else color
     val annotatedString = parseMarkdownToAnnotatedString(text, defaultColor, fontSize)
@@ -35,7 +36,8 @@ fun MarkdownText(
         style = MaterialTheme.typography.bodyMedium.copy(
             fontSize = fontSize,
             lineHeight = lineHeight,
-            color = defaultColor
+            color = defaultColor,
+            fontWeight = fontWeight
         )
     )
 }
@@ -43,10 +45,36 @@ fun MarkdownText(
 fun parseMarkdownToAnnotatedString(raw: String, defaultColor: Color, defaultSize: TextUnit): AnnotatedString {
     return buildAnnotatedString {
         val lines = raw.lines()
-        for ((index, line) in lines.withIndex()) {
-            if (index > 0) append("\n")
+        var inCodeBlock = false
 
+        for ((index, line) in lines.withIndex()) {
             val trimmed = line.trimStart()
+
+            // Handle code block fences ```
+            if (trimmed.startsWith("```")) {
+                inCodeBlock = !inCodeBlock
+                continue
+            }
+
+            if (index > 0 && this.length > 0) append("\n")
+
+            if (inCodeBlock) {
+                val startPos = this.length
+                append(line)
+                val endPos = this.length
+                addStyle(
+                    SpanStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = (defaultSize.value * 0.95f).sp,
+                        background = Color.Gray.copy(alpha = 0.15f),
+                        color = defaultColor
+                    ),
+                    startPos,
+                    endPos
+                )
+                continue
+            }
+
             when {
                 trimmed.startsWith("### ") -> {
                     val headerText = trimmed.removePrefix("### ").trim()
@@ -93,9 +121,34 @@ fun parseMarkdownToAnnotatedString(raw: String, defaultColor: Color, defaultSize
                         endPos
                     )
                 }
-                trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
+                trimmed.startsWith("> ") -> {
+                    val quoteText = trimmed.removePrefix("> ").trim()
+                    val startPos = this.length
+                    append("┃ ")
+                    appendInlineMarkdown(quoteText)
+                    val endPos = this.length
+                    addStyle(
+                        SpanStyle(
+                            fontStyle = FontStyle.Italic,
+                            color = defaultColor.copy(alpha = 0.85f)
+                        ),
+                        startPos,
+                        endPos
+                    )
+                }
+                trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
                     append("• ")
-                    appendInlineMarkdown(trimmed.substring(2))
+                    val content = when {
+                        trimmed.startsWith("- ") || trimmed.startsWith("* ") -> trimmed.substring(2)
+                        else -> trimmed.substring(2).trimStart()
+                    }
+                    appendInlineMarkdown(content)
+                }
+                trimmed.matches(Regex("^\\d+\\.\\s.*")) -> {
+                    val numPrefix = trimmed.substringBefore(". ") + ". "
+                    val rest = trimmed.substringAfter(". ")
+                    append(numPrefix)
+                    appendInlineMarkdown(rest)
                 }
                 else -> {
                     appendInlineMarkdown(line)

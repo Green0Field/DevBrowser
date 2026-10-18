@@ -43,6 +43,10 @@ import com.example.model.AiProtectionScanResult
 import com.example.model.AiThreatCategory
 import com.example.model.AiChatDialogState
 import com.example.model.ChatMessage
+import com.example.data.GitHubUpdateApiClient
+import com.example.model.AutoUpdateCheckFrequency
+import com.example.model.AppUpdateInfo
+import com.example.model.UpdateCheckStatus
 import com.example.model.GeminiModelChoice
 import com.example.model.WebpageTranslationState
 import com.example.model.WebPageError
@@ -50,6 +54,7 @@ import com.example.model.WebPageErrorType
 import com.example.ui.pages.error.resolveWebPageError
 import com.example.data.GeminiApiClient
 import com.example.BuildConfig
+import com.example.ui.pages.debug.parseDebugQueryParams
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -143,7 +148,15 @@ data class BrowserUiState(
     val aiScanCache: Map<String, AiProtectionScanResult> = emptyMap(),
     val isScanningAiProtection: Boolean = false,
     val activeAiChatState: AiChatDialogState? = null,
-    val activeTranslationState: WebpageTranslationState? = null
+    val activeTranslationState: WebpageTranslationState? = null,
+    val isAutoUpdateEnabled: Boolean = true,
+    val githubApiKey: String = "",
+    val autoUpdateFrequency: AutoUpdateCheckFrequency = AutoUpdateCheckFrequency.EACH_STARTUP,
+    val autoUpdateStartupCount: Int = 0,
+    val lastUpdateCheckMillis: Long = 0L,
+    val updateCheckStatus: UpdateCheckStatus = UpdateCheckStatus.Idle,
+    val pendingUpdateNotice: AppUpdateInfo? = null,
+    val isIncludePrereleases: Boolean = false
 ) {
     val activeTab: BrowserTab
         get() = tabs.find { it.id == activeTabId } ?: tabs.first()
@@ -272,6 +285,7 @@ class BrowserDevToolsViewModel(
                 historyIdGenerator.set(maxHistId + 1L)
             }
             syncWebViewThemePreference()
+            checkAutoUpdateOnStartupIfNeeded()
         }
     }
 
@@ -415,10 +429,12 @@ class BrowserDevToolsViewModel(
             lower == BrowserTab.URL_SETTINGS_DATA -> "Settings - Data"
             lower == BrowserTab.URL_SETTINGS_VIRUSTOTAL -> "Settings - VirusTotal"
             lower == BrowserTab.URL_SETTINGS_AI -> "Settings - Ai Features"
+            lower == BrowserTab.URL_SETTINGS_AUTO_UPDATE -> "Settings - Auto update"
             lower == BrowserTab.URL_SETTINGS_ABOUT -> "Settings - About"
             lower.startsWith("devbrowser:settings/") -> "Settings - " + lower.removePrefix("devbrowser:settings/").replaceFirstChar { it.uppercase() }
             lower == BrowserTab.URL_DEBUG -> "DevBrowser Debug"
             lower == BrowserTab.URL_DEBUG_ERROR -> "Debug - Error Pages"
+            lower == BrowserTab.URL_DEBUG_AUTO_UPDATE || lower.startsWith("devbrowser:debug/autoupdate") -> "Debug - Auto-Update Simulator"
             lower.startsWith("devbrowser:debug/error/") -> "Debug - " + lower.removePrefix("devbrowser:debug/error/").substringBefore("?").replaceFirstChar { it.uppercase() }
             lower.startsWith("devbrowser:debug/") -> "Debug - " + lower.removePrefix("devbrowser:debug/").substringBefore("?").replaceFirstChar { it.uppercase() }
             lower == BrowserTab.URL_TEST -> "DevBrowser Test Page"
@@ -615,6 +631,7 @@ class BrowserDevToolsViewModel(
             // Debug URL mappings - support devbrowser:debug, devbrowser://debug, about:debug, debug
             lower == "devbrowser:debug" || lower == "about:debug" || lower == "debug" || lower == "devbrowser://debug" -> BrowserTab.URL_DEBUG
             lower == "devbrowser:debug/error" || lower == "about:debug/error" || lower == "debug/error" || lower == "devbrowser://debug/error" -> BrowserTab.URL_DEBUG_ERROR
+            lower == "devbrowser:debug/autoupdate" || lower == "about:debug/autoupdate" || lower == "debug/autoupdate" || lower == "devbrowser://debug/autoupdate" -> BrowserTab.URL_DEBUG_AUTO_UPDATE
             trimmed.startsWith("devbrowser:debug", ignoreCase = true) ||
             trimmed.startsWith("devbrowser://debug", ignoreCase = true) ||
             trimmed.startsWith("about:debug", ignoreCase = true) ||
@@ -681,6 +698,14 @@ class BrowserDevToolsViewModel(
         }
 
         recordHistoryEntry(newTitle, finalUrl)
+
+        if (finalUrl.startsWith("devbrowser:debug/autoupdate", ignoreCase = true)) {
+            val (_, params) = parseDebugQueryParams(finalUrl)
+            val ver = params["version"] ?: params["v"]
+            val desc = params["description"] ?: params["desc"] ?: params["short_description"]
+            val changelog = params["changelog"] ?: params["notes"] ?: params["release_notes"]
+            triggerDebugAutoUpdate(ver, desc, changelog)
+        }
 
         if (!isInternalCompose) {
             if (!finalUrl.startsWith("devbrowser:", ignoreCase = true)) {
@@ -2375,6 +2400,183 @@ class BrowserDevToolsViewModel(
                     }
                 }
             }
+        }
+    }
+
+    // Auto-Update Management
+    fun setAutoUpdateEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isAutoUpdateEnabled = enabled) }
+        preferencesStore?.saveAutoUpdateEnabled(enabled)
+    }
+
+    fun setGithubApiKey(apiKey: String) {
+        val trimmed = apiKey.trim()
+        _uiState.update { it.copy(githubApiKey = trimmed) }
+        preferencesStore?.saveGithubApiKey(trimmed)
+    }
+
+    fun setAutoUpdateFrequency(frequency: AutoUpdateCheckFrequency) {
+        _uiState.update { it.copy(autoUpdateFrequency = frequency) }
+        preferencesStore?.saveAutoUpdateFrequency(frequency)
+    }
+
+    fun setIncludePrereleases(include: Boolean) {
+        _uiState.update { it.copy(isIncludePrereleases = include) }
+        preferencesStore?.saveIncludePrereleases(include)
+    }
+
+    fun dismissUpdateNotice() {
+        _uiState.update { it.copy(pendingUpdateNotice = null) }
+    }
+
+    fun triggerDebugAutoUpdate(
+        versionParam: String? = null,
+        descriptionParam: String? = null,
+        changelogParam: String? = null
+    ) {
+        val state = _uiState.value
+        _uiState.update { it.copy(updateCheckStatus = UpdateCheckStatus.Checking) }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val needsGithubFetch = versionParam.isNullOrBlank() ||
+                descriptionParam.isNullOrBlank() ||
+                changelogParam.isNullOrBlank()
+
+            val githubReleaseInfo = if (needsGithubFetch) {
+                when (val result = GitHubUpdateApiClient.checkForUpdates(
+                    apiKey = state.githubApiKey,
+                    currentVersionName = com.example.BuildConfig.VERSION_NAME,
+                    includePrereleases = state.isIncludePrereleases
+                )) {
+                    is GitHubUpdateApiClient.Result.Success -> result.updateInfo
+                    is GitHubUpdateApiClient.Result.Error -> null
+                }
+            } else null
+
+            val fallbackVersion = com.example.BuildConfig.VERSION_NAME
+            val resolvedVersion = when {
+                !versionParam.isNullOrBlank() -> versionParam.trim()
+                githubReleaseInfo != null && githubReleaseInfo.latestVersionName.isNotBlank() -> githubReleaseInfo.latestVersionName
+                else -> fallbackVersion
+            }
+
+            val cleanVer = resolvedVersion.removePrefix("v").removePrefix("V")
+
+            val resolvedTitle = when {
+                !descriptionParam.isNullOrBlank() -> descriptionParam.trim()
+                githubReleaseInfo != null && githubReleaseInfo.releaseTitle.isNotBlank() -> githubReleaseInfo.releaseTitle
+                else -> "DevBrowser v$cleanVer"
+            }
+
+            val resolvedNotes = when {
+                !changelogParam.isNullOrBlank() -> changelogParam.trim().replace("\\n", "\n")
+                githubReleaseInfo != null && githubReleaseInfo.releaseNotes.isNotBlank() -> githubReleaseInfo.releaseNotes
+                else -> "- Performance improvements and bug fixes\n- Updated WebView engine\n- Developer tools enhancements"
+            }
+
+            val resolvedDownloadUrl = if (githubReleaseInfo != null &&
+                cleanVer.equals(githubReleaseInfo.latestVersionName.removePrefix("v").removePrefix("V"), ignoreCase = true) &&
+                githubReleaseInfo.downloadUrl.isNotBlank()
+            ) {
+                githubReleaseInfo.downloadUrl
+            } else {
+                "https://github.com/Green0Field/DevBrowser/releases/download/v$cleanVer/DevBrowser-$cleanVer-release.apk"
+            }
+
+            val resolvedHtmlUrl = if (githubReleaseInfo != null &&
+                cleanVer.equals(githubReleaseInfo.latestVersionName.removePrefix("v").removePrefix("V"), ignoreCase = true) &&
+                githubReleaseInfo.htmlUrl.isNotBlank()
+            ) {
+                githubReleaseInfo.htmlUrl
+            } else {
+                "https://github.com/Green0Field/DevBrowser/releases/tag/v$cleanVer"
+            }
+
+            val simulatedUpdateInfo = AppUpdateInfo(
+                latestVersionName = cleanVer,
+                releaseTitle = resolvedTitle,
+                releaseNotes = resolvedNotes,
+                publishedAt = githubReleaseInfo?.publishedAt?.ifBlank { null } ?: "Just now",
+                downloadUrl = resolvedDownloadUrl,
+                htmlUrl = resolvedHtmlUrl,
+                apkFileName = "DevBrowser-$cleanVer-release.apk",
+                apkSizeFormatted = if (githubReleaseInfo != null && cleanVer.equals(githubReleaseInfo.latestVersionName, ignoreCase = true) && githubReleaseInfo.apkSizeFormatted.isNotBlank()) {
+                    githubReleaseInfo.apkSizeFormatted
+                } else {
+                    "14.2 MB"
+                },
+                isUpdateAvailable = true
+            )
+
+            _uiState.update { current ->
+                current.copy(
+                    pendingUpdateNotice = simulatedUpdateInfo,
+                    updateCheckStatus = UpdateCheckStatus.UpdateAvailable(simulatedUpdateInfo)
+                )
+            }
+        }
+    }
+
+    fun checkForAppUpdates(isManual: Boolean = true) {
+        val state = _uiState.value
+        _uiState.update { it.copy(updateCheckStatus = UpdateCheckStatus.Checking) }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = GitHubUpdateApiClient.checkForUpdates(
+                apiKey = state.githubApiKey,
+                currentVersionName = com.example.BuildConfig.VERSION_NAME,
+                includePrereleases = state.isIncludePrereleases
+            )
+            val now = System.currentTimeMillis()
+            preferencesStore?.saveLastUpdateCheckMillis(now)
+
+            _uiState.update { current ->
+                when (result) {
+                    is GitHubUpdateApiClient.Result.Success -> {
+                        val info = result.updateInfo
+                        if (info.isUpdateAvailable) {
+                            current.copy(
+                                lastUpdateCheckMillis = now,
+                                updateCheckStatus = UpdateCheckStatus.UpdateAvailable(info),
+                                pendingUpdateNotice = info
+                            )
+                        } else {
+                            current.copy(
+                                lastUpdateCheckMillis = now,
+                                updateCheckStatus = UpdateCheckStatus.UpToDate(
+                                    currentVersion = com.example.BuildConfig.VERSION_NAME,
+                                    lastCheckedMillis = now
+                                )
+                            )
+                        }
+                    }
+                    is GitHubUpdateApiClient.Result.Error -> {
+                        current.copy(
+                            lastUpdateCheckMillis = now,
+                            updateCheckStatus = UpdateCheckStatus.Error(result.message)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun checkAutoUpdateOnStartupIfNeeded() {
+        val state = _uiState.value
+        val newStartupCount = state.autoUpdateStartupCount + 1
+        preferencesStore?.saveAutoUpdateStartupCount(newStartupCount)
+
+        if (state.isAutoUpdateEnabled && state.autoUpdateFrequency != AutoUpdateCheckFrequency.MANUAL_ONLY) {
+            val threshold = state.autoUpdateFrequency.startupThreshold
+            if (newStartupCount >= threshold) {
+                preferencesStore?.saveAutoUpdateStartupCount(0)
+                _uiState.update { it.copy(autoUpdateStartupCount = 0) }
+                checkForAppUpdates(isManual = false)
+            } else {
+                _uiState.update { it.copy(autoUpdateStartupCount = newStartupCount) }
+            }
+        } else {
+            _uiState.update { it.copy(autoUpdateStartupCount = newStartupCount) }
         }
     }
 }

@@ -1,0 +1,14 @@
+DevBrowser is a fully open-source, feature-packed mobile web browser designed for developers, privacy advocates, and everyday users. This is a vibe coded app with [Google Ai Studio](aistudio.google.com)!
+
+Still in beta, expect bugs!
+
+**Features:**
+ - DevTools
+ - Consle
+ - Elements
+ - CSSOM
+ - Bookmarks
+ - History
+ - Themes with colors
+
+And More!

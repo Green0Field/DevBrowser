@@ -1,7 +1,7 @@
 # DevBrowser
-Testing out vibe coding with [Google Ai Studio](aistudio.google.com)!
+This is a vibe coded app with [Google Ai Studio](aistudio.google.com)!
 ---
-This is a browser like chrome with devtools
+A open browser with cool features and made for everyone!
 
 ---
 ## Features:

@@ -127,6 +127,44 @@ class ExampleUnitTest {
     val issues = com.example.ui.pages.settings.validateUserscriptSyntax(template.code)
     assertTrue("Default template should have no syntax issues", issues.none { it.isError })
   }
+
+  @Test
+  fun testVersionComparisonLogic() {
+    assertTrue("v0.2 should be newer than 0.1", com.example.data.GitHubUpdateApiClient.isVersionNewer("v0.2", "0.1"))
+    assertTrue("0.2.0 should be newer than 0.1", com.example.data.GitHubUpdateApiClient.isVersionNewer("0.2.0", "0.1"))
+    assertTrue("1.0 should be newer than 0.1", com.example.data.GitHubUpdateApiClient.isVersionNewer("1.0", "0.1"))
+    assertTrue("0.1.1 should be newer than 0.1", com.example.data.GitHubUpdateApiClient.isVersionNewer("0.1.1", "0.1"))
+    assertFalse("v0.1 should not be newer than 0.1", com.example.data.GitHubUpdateApiClient.isVersionNewer("v0.1", "0.1"))
+    assertFalse("0.1 should not be newer than 0.1", com.example.data.GitHubUpdateApiClient.isVersionNewer("0.1", "0.1"))
+    assertFalse("0.0.9 should not be newer than 0.1", com.example.data.GitHubUpdateApiClient.isVersionNewer("0.0.9", "0.1"))
+  }
+
+  @Test
+  fun testAutoUpdateFrequencyAndCategoryOrder() {
+    assertEquals(
+        com.example.model.AutoUpdateCheckFrequency.EACH_STARTUP,
+        com.example.model.AutoUpdateCheckFrequency.fromThreshold(1)
+    )
+    assertEquals(
+        com.example.model.AutoUpdateCheckFrequency.EVERY_2_STARTUPS,
+        com.example.model.AutoUpdateCheckFrequency.fromThreshold(2)
+    )
+    assertEquals(
+        com.example.model.AutoUpdateCheckFrequency.MANUAL_ONLY,
+        com.example.model.AutoUpdateCheckFrequency.fromThreshold(0)
+    )
+
+    // Verify AUTO_UPDATE category exists and is placed above ABOUT
+    assertTrue(
+        "Auto update must be placed above About category",
+        com.example.model.SettingsCategory.AUTO_UPDATE.ordinal < com.example.model.SettingsCategory.ABOUT.ordinal
+    )
+    assertEquals(
+        com.example.model.SettingsCategory.AUTO_UPDATE,
+        com.example.model.SettingsCategory.fromUrl("devbrowser:settings/auto-update")
+    )
+  }
 }
+
 
 

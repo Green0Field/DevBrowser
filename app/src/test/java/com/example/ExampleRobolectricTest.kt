@@ -18,6 +18,9 @@ import com.example.model.AiProtectionScanResult
 import com.example.model.WebPageErrorType
 import com.example.ui.pages.error.resolveWebPageError
 import com.example.ui.pages.debug.parseDebugQueryParams
+import com.example.ui.components.parseMarkdownToAnnotatedString
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import com.example.viewmodel.BrowserDevToolsViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -435,6 +438,7 @@ class ExampleRobolectricTest {
         assertEquals(-999, unknownError.errorCode)
 
         // 2. ViewModel onWebPageError lifecycle test
+        viewModel.navigateToInput("https://nonexistent-domain-xyz123.com")
         viewModel.onWebPageError(
             failingUrl = "https://nonexistent-domain-xyz123.com",
             errorCode = -2,
@@ -525,5 +529,86 @@ class ExampleRobolectricTest {
         assertEquals("onPageStarted must not overwrite internal page with about:blank", BrowserTab.URL_DEBUG, viewModel.uiState.value.activeTab.url)
         viewModel.onPageFinished("about:blank", "About Blank", false, false)
         assertEquals("onPageFinished must not overwrite internal page with about:blank", BrowserTab.URL_DEBUG, viewModel.uiState.value.activeTab.url)
+    }
+
+    @Test
+    fun testAutoUpdateDebugPageAndUrlParameters() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = BrowserDevToolsViewModel(context)
+
+        // 1. Query parameter parsing test with version, description, and changelog
+        val testUrl = "devbrowser:debug/autoupdate?version=12.3&description=cool%20new%20version&changelog=-%20Added%20new%20feature%0A-%20added%20another%20feature"
+        val (path, params) = parseDebugQueryParams(testUrl)
+        assertEquals("devbrowser:debug/autoupdate", path)
+        assertEquals("12.3", params["version"])
+        assertEquals("cool new version", params["description"])
+        assertTrue(params["changelog"]?.contains("Added new feature") == true)
+
+        // 2. isComposeInternalUrl recognizes autoupdate debug URL
+        assertTrue(viewModel.isComposeInternalUrl("devbrowser:debug/autoupdate"))
+        assertTrue(viewModel.isComposeInternalUrl(testUrl))
+
+        // 3. Trigger debug autoupdate with parameters
+        viewModel.triggerDebugAutoUpdate(
+            versionParam = "12.3",
+            descriptionParam = "cool new version",
+            changelogParam = "- Added new feature\n- added another feature"
+        )
+
+        var attempts = 0
+        while (viewModel.uiState.value.pendingUpdateNotice == null && attempts < 40) {
+            Thread.sleep(50)
+            org.robolectric.shadows.ShadowLooper.idleMainLooper()
+            attempts++
+        }
+
+        val notice = viewModel.uiState.value.pendingUpdateNotice
+        assertNotNull("pendingUpdateNotice should be populated", notice)
+        assertEquals("12.3", notice?.latestVersionName)
+        assertEquals("cool new version", notice?.releaseTitle)
+        assertTrue(notice?.releaseNotes?.contains("Added new feature") == true)
+        assertTrue("isUpdateAvailable should be true even when simulated", notice?.isUpdateAvailable == true)
+        assertEquals(
+            "https://github.com/Green0Field/DevBrowser/releases/download/v12.3/DevBrowser-12.3-release.apk",
+            notice?.downloadUrl
+        )
+
+        // 4. Test navigation to debug autoupdate URL
+        viewModel.navigateToInput(testUrl)
+        assertEquals(testUrl, viewModel.uiState.value.activeTab.url)
+        assertEquals("Debug - Auto-Update Simulator", viewModel.uiState.value.activeTab.title)
+    }
+
+    @Test
+    fun testMarkdownParsingForUpdatePopup() {
+        val sampleTitle = "**Cool New Version** with `fast` engine"
+        val sampleChangelog = """
+            ### Highlights
+            - Added **bold feature**
+            - Improved *rendering*
+            - Code block:
+            ```
+            val x = 42
+            ```
+            > Release quote
+        """.trimIndent()
+
+        val titleAnnotated = parseMarkdownToAnnotatedString(
+            sampleTitle,
+            Color.Black,
+            14.sp
+        )
+        val changelogAnnotated = parseMarkdownToAnnotatedString(
+            sampleChangelog,
+            Color.Black,
+            14.sp
+        )
+
+        assertTrue(titleAnnotated.text.contains("Cool New Version"))
+        assertTrue(titleAnnotated.text.contains("fast"))
+        assertTrue(changelogAnnotated.text.contains("Highlights"))
+        assertTrue(changelogAnnotated.text.contains("• Added bold feature"))
+        assertTrue(changelogAnnotated.text.contains("val x = 42"))
+        assertTrue(changelogAnnotated.text.contains("┃ Release quote"))
     }
 }
