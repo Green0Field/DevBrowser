@@ -1,5 +1,3 @@
-AntiFeatures: []
-
 Categories:
   - Internet
   - Development
@@ -29,30 +27,25 @@ Description: |-
 RepoType: git
 Repo: https://github.com/Green0Field/DevBrowser.git
 
-Binaries: https://github.com/Green0Field/DevBrowser/releases/download/v%v/DevBrowser-%v-release.apk
-
-AllowedAPKSigningKeys:
-  - 0d952ce8664f62d6d61eb82978d61647960c5c9e557401396c34a092f1b19ea5
-
 Builds:
   - versionName: '0.1'
     versionCode: 1
     commit: v0.1
-    binaries: https://github.com/Green0Field/DevBrowser/releases/download/v0.1/DevBrowser-0.1-release.apk
     gradle:
       - yes
     prebuild:
-      - keytool -genkeypair -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=FDroid,O=FDroid,C=US"
+      - |
+        keytool -genkeypair -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=FDroid,O=FDroid,C=US"
     scandelete:
       - debug.keystore.base64
   - versionName: '0.2'
     versionCode: 2
     commit: v0.2
-    binaries: https://github.com/Green0Field/DevBrowser/releases/download/v0.2/DevBrowser-0.2-release.apk
     gradle:
       - yes
     prebuild:
-      - keytool -genkeypair -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=FDroid,O=FDroid,C=US"
+      - |
+        keytool -genkeypair -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=FDroid,O=FDroid,C=US"
     scandelete:
       - debug.keystore.base64
 
