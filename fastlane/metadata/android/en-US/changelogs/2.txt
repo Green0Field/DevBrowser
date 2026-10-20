@@ -1,14 +1,16 @@
 **Short Description:** More security, more control! Now 100% FOSS! Preparing to add to fdroid!
 ```
-Green0Field (25):
-  Initial commit
-  First Commit
-  Add initial README
-  feat(home): add pinned shortcuts and refactor search engine model
-  Add features section to README
-  feat: implement persistent browser state management
-  Add initial changelog
-  Add a Github Action to automate releases
-  Add short release descriptions
-...
+Green0Field (15):
+  Fix CHANGELOG.md a bit
+  Fix release descriptions in Github Actions
+  Add Download link
+  Update version format in CHANGELOG.md
+  Fix version numbers and add dynamic download links in README.md
+  Add categories and easier data deletion
+  Add VirusTotal to scan websites
+  Fixed Release Ci to not fail if a commit dosent have a Release tag
+  Add userscript support
+  Add GNU General Public License v3
+  Add ai features
+  ...
 ```

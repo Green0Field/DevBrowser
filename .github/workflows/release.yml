@@ -62,23 +62,72 @@ jobs:
       - name: Generate git shortlog, update CHANGELOG.md, and update README.md
         id: shortlog
         if: steps.check_commit.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION_NO_V="${{ steps.check_commit.outputs.version }}"
           VERSION_WITH_V="${{ steps.check_commit.outputs.version_with_v }}"
           SHORT_DESC="${{ steps.check_commit.outputs.short_desc }}"
           IS_PRERELEASE="${{ steps.check_commit.outputs.is_prerelease }}"
-          git shortlog HEAD < /dev/null > release_shortlog.txt
 
-          # Create release description with ## v<version>
-          {
-            echo "## $VERSION_WITH_V"
-            if [ -n "$SHORT_DESC" ]; then
-              echo "**Short Description:** $SHORT_DESC"
+          # 1. Before doing anything: find how many commits there are ("new old commit number")
+          NEW_OLD_COMMIT_NUMBER=$(git rev-list --count HEAD)
+          echo "new old commit number: $NEW_OLD_COMMIT_NUMBER"
+
+          # 2. Look at last release description for markdown comment on the last line (or line before) ("old commit number")
+          LAST_RELEASE_BODY=""
+          if command -v gh >/dev/null 2>&1; then
+            LAST_RELEASE_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
+            if [ -n "$LAST_RELEASE_TAG" ]; then
+              LAST_RELEASE_BODY=$(gh release view "$LAST_RELEASE_TAG" --json body --jq '.body' 2>/dev/null || true)
             fi
-            echo '```'
-            cat release_shortlog.txt
-            echo '```'
-          } > release_notes.txt
+          fi
+
+          OLD_COMMIT_NUMBER=$(LAST_RELEASE_BODY="$LAST_RELEASE_BODY" python3 -c '
+          import os, re
+          body = os.environ.get("LAST_RELEASE_BODY", "")
+          lines = [l.strip() for l in body.splitlines() if l.strip()]
+          old_count = 0
+          candidates = lines[-2:] if len(lines) >= 2 else lines
+          for line in reversed(candidates):
+              m = re.search(r"<!--\s*(?:commit_count[:=]\s*)?(\d+)\s*-->", line)
+              if m:
+                  try:
+                      old_count = int(m.group(1))
+                      break
+                  except ValueError:
+                      pass
+          print(old_count)
+          ')
+
+          # Fallback: if comment was not found, check previous git tag
+          if [ -z "$OLD_COMMIT_NUMBER" ] || [ "$OLD_COMMIT_NUMBER" -le 0 ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+            if [ -n "$PREV_TAG" ]; then
+              OLD_COMMIT_NUMBER=$(git rev-list --count "$PREV_TAG" 2>/dev/null || echo 0)
+              echo "Fallback: found previous tag $PREV_TAG with $OLD_COMMIT_NUMBER commits"
+            else
+              OLD_COMMIT_NUMBER=0
+              echo "No previous release comment or tag found. old commit number = 0"
+            fi
+          fi
+          echo "old commit number: $OLD_COMMIT_NUMBER"
+
+          # 3. Subtract old commit number from new old commit number ("latest commit number")
+          # Run: git shortlog HEAD -<latest commit number>
+          if [ "$OLD_COMMIT_NUMBER" -gt 0 ] && [ "$NEW_OLD_COMMIT_NUMBER" -gt "$OLD_COMMIT_NUMBER" ]; then
+            LATEST_COMMIT_NUMBER=$(( NEW_OLD_COMMIT_NUMBER - OLD_COMMIT_NUMBER ))
+            echo "latest commit number: $LATEST_COMMIT_NUMBER"
+            git shortlog HEAD -$LATEST_COMMIT_NUMBER < /dev/null > release_shortlog.txt
+          else
+            echo "Running git shortlog for entire HEAD history"
+            git shortlog HEAD < /dev/null > release_shortlog.txt
+          fi
+
+          if [ ! -s release_shortlog.txt ]; then
+            git shortlog HEAD < /dev/null > release_shortlog.txt
+          fi
 
           # Ensure CHANGELOG.md exists
           if [ ! -f CHANGELOG.md ]; then
@@ -88,7 +137,7 @@ jobs:
             echo "" >> CHANGELOG.md
           fi
 
-          # Append entry to CHANGELOG.md with ## v<version>
+          # Append entry to CHANGELOG.md with ## v<version> (version header kept in CHANGELOG.md)
           {
             echo ""
             echo "## $VERSION_WITH_V"
@@ -115,6 +164,22 @@ jobs:
             git commit -m "docs: update CHANGELOG.md, README.md, and metadata for $VERSION_WITH_V [skip ci]"
             git push origin HEAD || true
           fi
+
+          # 4. After updating README and CHANGELOG.md and committing those changes:
+          # find how many commits there are ("new commit number")
+          NEW_COMMIT_NUMBER=$(git rev-list --count HEAD)
+          echo "new commit number: $NEW_COMMIT_NUMBER"
+
+          # 5. Create release description (without ## v<version> header, with markdown comment on last line)
+          {
+            if [ -n "$SHORT_DESC" ]; then
+              echo "**Short Description:** $SHORT_DESC"
+            fi
+            echo '```'
+            cat release_shortlog.txt
+            echo '```'
+            echo "<!-- $NEW_COMMIT_NUMBER -->"
+          } > release_notes.txt
 
           cat release_notes.txt
           {
