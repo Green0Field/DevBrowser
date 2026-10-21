@@ -1,6 +1,6 @@
 Categories:
-  - Internet
   - Development
+  - Internet
 
 License: GPL-3.0-or-later
 AuthorName: Green0Field
@@ -9,20 +9,6 @@ WebSite: https://github.com/Green0Field/DevBrowser
 SourceCode: https://github.com/Green0Field/DevBrowser
 IssueTracker: https://github.com/Green0Field/DevBrowser/issues
 Changelog: https://github.com/Green0Field/DevBrowser/blob/main/CHANGELOG.md
-
-AutoName: DevBrowser
-Summary: DevBrowser is a fully open-source, feature-packed mobile web browser designed for developers, privacy advocates, and everyday users
-Description: |-
-  DevBrowser is a fully open-source, feature-packed mobile web browser designed for developers, privacy advocates, and everyday users.
-
-  Features:
-  - Integrated Chrome DevTools (DOM inspection, live CSS editing, JavaScript console, network waterfall analysis)
-  - Elements, Console, Sources, Storage, Performance, and CSSOM inspection panels
-  - Built-in error debugger with custom HTTP error pages and sandbox test presets
-  - Multi-tab management with incognito and persistent state management
-  - Modern Material 3 expressive user interface with dynamic theme colors
-  - Bookmarks and History management
-  - 100% Free and Open Source (FOSS) with no proprietary trackers, analytics, or Google Mobile Services (GMS) dependencies
 
 RepoType: git
 Repo: https://github.com/Green0Field/DevBrowser.git
@@ -33,21 +19,12 @@ Builds:
     commit: 15dfb90a82970a57d9d5fc9cef056cbaf02881e1
     gradle:
       - yes
-    prebuild:
-      - |
-        keytool -genkeypair -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=FDroid,O=FDroid,C=US"
-    scandelete:
-      - debug.keystore.base64
+
   - versionName: '0.2'
     versionCode: 2
     commit: 04af3590b8dca0ff267cefde6ed9cc5bc7f1e2ae
     gradle:
       - yes
-    prebuild:
-      - |
-        keytool -genkeypair -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=FDroid,O=FDroid,C=US"
-    scandelete:
-      - debug.keystore.base64
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
